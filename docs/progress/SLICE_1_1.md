@@ -4,11 +4,11 @@
 
 ## 当前状态
 
-进行中 —— 子系统 1「后端骨架」完成，下一轮做子系统 2「文档解析」。
+进行中 —— 子系统 1「后端骨架」+ 子系统 2「文档解析」完成，下一轮做子系统 3「出题引擎」。
 
 ## 已完成
 
-### 2026-06-24 轮次：后端骨架 + 数据模型 + LLM 抽象层
+### 2026-06-24 轮次 1：后端骨架 + 数据模型 + LLM 抽象层
 
 项目从零搭建，TDD（先红后绿），12 个测试全绿。
 
@@ -28,10 +28,34 @@
 - **依赖注入**（`dependencies.py`）：`get_session` / `get_llm_client`
 - **测试**：`conftest.py`（内存 SQLite + httpx ASGITransport）+ test_models / test_llm / test_app
 
+### 2026-06-24 轮次 2：文档解析（L1 提取 + 结构分块 + 上传 API）
+
+TDD，24 个新测试，累计 36 全绿。两个 commit：
+
+**commit A — 解析服务（`services/parsing/`）**
+- `tokens.estimate_tokens`：CJK 按字 + 其余 4 字符比例（分块尺寸控制用，非计费口径；真实 tokenizer 留切片 1.2）
+- `chunker.chunk_pages`：header 栈维护 section_path（跨页保持、同级替换、嵌套），512-1024 token，
+  段落→句子→字符三级回退拆分；**关键 bug 修复**：边界判断改用候选拼接串的真实估算值，
+  非逐单元累加（否则 \n\n 与标点的 rest//4 进位会让块超 1024）
+- `pdf.parse_pdf_to_sections`：pymupdf4llm **经典路径**（`use_layout(False)` 关掉 layout+OCR 重管线，
+  干净数字 PDF 无需 Tesseract）按页提取 markdown，`page_chunks=True` 每页带 1-indexed `metadata.page` + `text`
+- 依赖：pyproject 加 `pymupdf4llm>=1.27`，uv.lock 同步（带 numpy/onnxruntime 等传递依赖）
+- 测试：test_tokens / test_chunker / test_parsing_pdf（真实生成 PDF 端到端，不依赖外部文件）
+
+**commit B — 上传/查询 API（`schemas/` + `routers/`）**
+- `schemas/document.py`：SectionOut / DocumentOut / DocumentDetail（from_attributes 从 ORM 构建）
+- `routers/documents.py`：
+  - `POST /api/documents`：接受 PDF（扩展名或 content-type 校验）→ L1 解析 + 分块 → 落库 Document+Sections
+    （status pending->complete）；解析失败标 FAILED 返 422
+  - `GET /api/documents/{id}`：取文档详情含按 order_index 排序的 sections
+- `main.py` 装配 documents_router
+- 切片 1.1 请求内**同步**解析（秒级，满足「2 分钟内」验收）；异步解析 + 进度轮询、原文件落盘留给切片 1.4
+- 测试 helper `_pdf_helper.py` 共用；5 个 API 测试（上传/溯源字段/查询排序/404/非 PDF 拒绝）
+
 ## 子系统进度（按 SLICE_PHASE_1.md 切片 1.1 任务清单）
 
-- [x] 1. 后端骨架（FastAPI 分层 + SQLite + 数据模型 + LLM 抽象层接口）—— 本轮
-- [ ] 2. 文档解析（PyMuPDF4LLM 提取 + 512-1024 token 结构分块 + POST /api/documents）
+- [x] 1. 后端骨架（FastAPI 分层 + SQLite + 数据模型 + LLM 抽象层接口）—— 轮次 1
+- [x] 2. 文档解析（PyMuPDF4LLM 提取 + 512-1024 token 结构分块 + POST /api/documents）—— 轮次 2
 - [ ] 3. 出题引擎（两步生成 Step1 Concepts / Step2 选择题 + POST /generate-quiz + 简化自评）
 - [ ] 4. 答题反馈（POST /quiz-sessions/{id}/answer + 即时判分 + LLM 引用原文反馈）
 - [ ] 5. 前端（Next.js App Router + 上传页 + 答题界面 + 错题反馈展示）
@@ -39,17 +63,24 @@
 
 ## 验收标准核对
 
-- [ ] 上传 PDF（10-50 页）2 分钟内解析 —— 待子系统 2
+- [ ] 上传 PDF（10-50 页）2 分钟内解析 —— 解析同步且快，但**仅用生成的小 PDF（1-2 页）测过**；真实 10-50 页课件 PDF 端到端计时待真实 fixture 验证（机制已通）
 - [ ] 生成 5-10 道选择题，每题显示来源页码和章节 —— 待子系统 3
 - [ ] 选择题答完即时判分 —— 待子系统 4
 - [ ] 错题反馈引用课件原文 —— 待子系统 4
-- [x] 全流程 API 集成测试基础设施就绪（LLM mock + SQLite 内存）；端到端用例待子系统 6
+- [x] 全流程 API 集成测试基础设施就绪（LLM mock + SQLite 内存）；上传+解析端到端用例已绿；端到端全链路（出题→答题）待子系统 6
 
 ## 还剩
 
-子系统 2-6（见上）。下一轮从子系统 2「文档解析」开始：PyMuPDF4LLM 提取 PDF、结构感知分块、上传 API。
+子系统 3-6（见上）。下一轮从子系统 3「出题引擎」开始：
+- Step1：LLM 从 Section 提取 Concepts（带 source_span）
+- Step2：LLM 对每个 Concept 生成选择题（Bloom 记忆/理解层，带 source_span）
+- POST /api/documents/{id}/generate-quiz
+- 简化自评（accuracy + source-grounding 两维度，淘汰低分题）
+- 全程用 MockLLMClient，不依赖真实 key
 
 ## Blockers
 
-- **真实 LLM key**：暂用 MockLLMClient 覆盖全部 LLM 调用，provider/key 配置留给 yufeng。OpenAICompatibleClient 真实调用需真实 key，本轮未验证（测试只验证构造与路由）。
+- **真实 LLM key**：暂用 MockLLMClient 覆盖全部 LLM 调用，provider/key 配置留给 yufeng。OpenAICompatibleClient 真实调用需真实 key，未验证（测试只验证构造与路由）。
 - **SOCKS 代理环境**：本机带 SOCKS 代理时，openai SDK 构造 AsyncOpenAI 会创建 httpx client 并因缺 socksio 失败——非本代码问题，测试已用 monkeypatch 清代理规避；真实部署需 yufeng 注意。
+- **真实 10-50 页课件 PDF fixture**：本轮解析用 pymupdf 生成的内存 PDF（china-s CJK 字体）验证；真实课件 PDF（含复杂排版/扫描页）的解析质量待 yufeng 提供样本验证，L2/L3 分层路由在切片 1.4。
+- **pymupdf4llm 安装**：本轮已 `uv pip install pymupdf4llm` 成功并写入 pyproject + uv.lock；它带 numpy/onnxruntime 等传递依赖（layout 检测用），切片 1.1 走经典路径未实际用到这些，但依赖已落定。
