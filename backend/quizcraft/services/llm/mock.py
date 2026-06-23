@@ -15,6 +15,11 @@ class MockLLMClient:
         self._index = 0
         self.calls: list[list[Message]] = []
 
+    def set_responses(self, responses: list[str]) -> None:
+        """替换预设响应队列并重置游标（测试动态注入用）。"""
+        self._responses = list(responses)
+        self._index = 0
+
     async def complete(self, messages: list[Message], **kwargs) -> LLMResponse:
         self.calls.append(list(messages))
         if not self._responses:

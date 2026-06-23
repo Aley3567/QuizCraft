@@ -3,7 +3,7 @@ from collections.abc import AsyncIterator
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from quizcraft.config import Settings, get_settings
+from quizcraft.config import get_settings
 from quizcraft.db import make_engine, make_session_factory
 from quizcraft.services.llm import LLMClient, make_llm_client
 

@@ -1,5 +1,4 @@
 """结构感知分块测试：header 栈、跨页 section_path、512-1024 token 边界、超限拆分。"""
-import pytest
 
 from quizcraft.services.parsing import DEFAULT_MAX_TOKENS, PageMarkdown, chunk_pages
 

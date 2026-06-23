@@ -52,3 +52,19 @@ async def client(engine):
 def settings():
     """默认 mock provider 的配置，测试不依赖真实 key。"""
     return Settings(llm_provider="mock")
+
+
+@pytest_asyncio.fixture
+async def llm_mock(client):
+    """注入 MockLLMClient 作为 get_llm_client 依赖，返回 mock 供测试 set_responses。
+
+    依赖 client（共享其内存 SQLite）；测试体调 mock.set_responses([...]) 设定 LLM 输出后发请求。
+    """
+    from quizcraft.dependencies import get_llm_client
+    from quizcraft.main import app
+    from quizcraft.services.llm import MockLLMClient
+
+    mock = MockLLMClient()
+    app.dependency_overrides[get_llm_client] = lambda: mock
+    yield mock
+    app.dependency_overrides.pop(get_llm_client, None)
