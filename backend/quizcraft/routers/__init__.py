@@ -1,5 +1,6 @@
 """API 路由汇总。"""
 from quizcraft.routers.documents import router as documents_router
 from quizcraft.routers.quiz import router as quiz_router
+from quizcraft.routers.quiz_sessions import router as quiz_sessions_router
 
-__all__ = ["documents_router", "quiz_router"]
+__all__ = ["documents_router", "quiz_router", "quiz_sessions_router"]

@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-进行中 —— 子系统 1-3 完成（后端骨架 / 文档解析 / 出题引擎），下一轮做子系统 4「答题反馈」。
+进行中 —— 子系统 1-4 完成（后端骨架 / 文档解析 / 出题引擎 / 答题反馈），下一轮做子系统 5「前端」或 6「端到端集成测试」。
 
 ## 已完成
 
@@ -76,12 +76,37 @@ TDD（先红后绿），15 个新测试，累计 51 全绿。一个 commit。
 - **代码质量**：ruff 检查顺手清理前轮遗留 unused import（dependencies.py 的 Settings、test_chunker.py 的 pytest）
 - **测试**：test_quiz_prompts（3）/ test_quiz_generator（8，纯逻辑）/ test_quiz_api（4，端到端落库 + 404/400）
 
+### 2026-06-24 轮次 4：答题反馈（即时判分 + LLM 引用原文反馈 + 会话结算）
+
+TDD（先红后绿），15 个新测试，累计 66 全绿。一个 commit。
+
+- **反馈 prompt**（`services/quiz/prompts.py` 加 `build_feedback_messages`）：要求 LLM 据学生作答 +
+  source_span（页码/章节路径/原文片段）生成引用课件原文的解释，强调「非通用解析」；只返回纯文本
+- **反馈生成**（`services/quiz/feedback.py`，纯逻辑不碰 DB）：
+  - `generate_feedback(question, *, selected_option_index, is_correct, llm)` 调 LLM，空响应/异常走 `_fallback_feedback`
+    —— 判分不依赖 LLM，LLM 抖动不丢反馈
+  - `_fallback_feedback` 确定性兜底：含判定 + 正确答案文本 + 来源页码/章节/原文片段；source_span 缺失也容错
+- **答题 schema**（`schemas/quiz.py` 加 `AnswerRequest` / `AnswerOut`）：
+  - `AnswerRequest{question_id, selected_option_index}` —— 带 question_id（非按序自动推进），作答明确、可重答、可乱序，
+    便于切片 1.2 交叉混合出题与重答
+  - `AnswerOut` 不含 correct_option_index：前端经 is_correct + feedback 文本理解对错，正确答案不下标暴露（防泄露）
+- **答题 API**（`routers/quiz_sessions.py` 新建，prefix /api/quiz-sessions）：
+  - `POST /api/quiz-sessions/{id}/answer`：404 会话不存在 / 400 已结束 / 400 题目不属于该会话 / 404 题目不存在 /
+    422 选项越界 → 确定性判分（selected == correct）→ LLM 反馈 → 幂等落库 Answer（同 session+question 已有则更新）→
+    答完全部题结算 status=completed + score=正确数/总数 + completed_at
+- **装配**：`routers/__init__` 导出 quiz_sessions_router；main include_router
+- **设计取舍**：会话答完即 completed，completed 后拒绝重答（400）；幂等价值在于「未答完前同题重提交不新增 Answer」
+  （网络重试/改答案），测试用 n=2 覆盖该路径
+- **测试**：test_quiz_feedback（6：prompt 含判定/页码/原文 / LLM 内容采用 / 空响应兜底 / 正错分支 / 缺 source_span）+
+  test_answer_api（9：答对仍 in_progress / 答错 / 答完结算 score=0.5 / 幂等重答覆盖 / LLM 空兜底 / 404 / 400 已结束 /
+  400 不属于 / 422 越界）
+
 ## 子系统进度（按 SLICE_PHASE_1.md 切片 1.1 任务清单）
 
 - [x] 1. 后端骨架（FastAPI 分层 + SQLite + 数据模型 + LLM 抽象层接口）—— 轮次 1
 - [x] 2. 文档解析（PyMuPDF4LLM 提取 + 512-1024 token 结构分块 + POST /api/documents）—— 轮次 2
 - [x] 3. 出题引擎（两步生成 Step1 Concepts / Step2 选择题 + POST /generate-quiz + 简化自评）—— 轮次 3
-- [ ] 4. 答题反馈（POST /quiz-sessions/{id}/answer + 即时判分 + LLM 引用原文反馈）
+- [x] 4. 答题反馈（POST /quiz-sessions/{id}/answer + 即时判分 + LLM 引用原文反馈 + 会话结算）—— 轮次 4
 - [ ] 5. 前端（Next.js App Router + 上传页 + 答题界面 + 错题反馈展示）
 - [ ] 6. 端到端集成测试（LLM mock，SQLite 内存）
 
@@ -89,18 +114,19 @@ TDD（先红后绿），15 个新测试，累计 51 全绿。一个 commit。
 
 - [ ] 上传 PDF（10-50 页）2 分钟内解析 —— 解析同步且快，但**仅用生成的小 PDF（1-2 页）测过**；真实 10-50 页课件 PDF 端到端计时待真实 fixture 验证（机制已通）
 - [x] 生成选择题，每题显示来源页码和章节 —— 子系统 3 已实现（Step2 生成带 source_span{page, section_path, text}，API 响应与落库均含）；数量取决于 section 数与 mock，真实 LLM 出题数量/质量/Bloom 分布待真实 key 验证
-- [ ] 选择题答完即时判分 —— 待子系统 4
-- [ ] 错题反馈引用课件原文 —— 待子系统 4
-- [x] 全流程 API 集成测试基础设施就绪（LLM mock + SQLite 内存）；上传+解析、出题端到端用例已绿；端到端全链路（出题→答题）待子系统 6
+- [x] 选择题答完即时判分 —— 子系统 4（确定性判分 selected==correct + Answer 落库 + 会话 status=completed/score 结算）
+- [x] 错题反馈引用课件原文 —— 子系统 4（LLM 据 source_span 生成引用原文反馈；空响应/异常走 `_fallback_feedback` 仍含页码/章节/原文片段）；真实 LLM 反馈质量待真实 key 验证
+- [x] 全流程 API 集成测试基础设施就绪（LLM mock + SQLite 内存）；上传+解析、出题、答题三套 API 端到端用例均绿；端到端全链路（上传→出题→答题→反馈）串成一条集成测试待子系统 6
 
 ## 还剩
 
-子系统 4-6（见上）。下一轮从子系统 4「答题反馈」开始：
-- POST /api/quiz-sessions/{id}/answer：接收 selected_option_index
-- 即时判分（确定性，对照 Question.correct_option_index），落库 Answer(is_correct)
-- LLM 根据用户答案 + source_span 生成引用文档原文的反馈（Answer.feedback）
-- QuizSession 记录答题结果，答完置 status=completed + score
-- 全程 MockLLMClient
+子系统 5-6：
+
+- **子系统 5 前端**：Next.js App Router + 文档上传页（拖拽 PDF）+ 答题界面（一题一题答、即时反馈）+
+  错题反馈展示（引用的文档原文 + 页码）。前端只向后端要答题所需的题面（不取 correct_option_index），
+  经 is_correct + feedback 文本展示对错，正确答案不下标暴露
+- **子系统 6 端到端集成测试**：上传 PDF → 出题 → 答题 → 反馈全链路一条集成测试（LLM mock，SQLite 内存）。
+  后端三套 API 已各自绿，子系统 6 侧重串成一条 + 前端冒烟
 
 ## Blockers
 
@@ -109,4 +135,5 @@ TDD（先红后绿），15 个新测试，累计 51 全绿。一个 commit。
 - **真实 10-50 页课件 PDF fixture**：本轮解析用 pymupdf 生成的内存 PDF（china-s CJK 字体）验证；真实课件 PDF（含复杂排版/扫描页）的解析质量待 yufeng 提供样本验证，L2/L3 分层路由在切片 1.4。
 - **pymupdf4llm 安装**：本轮已 `uv pip install pymupdf4llm` 成功并写入 pyproject + uv.lock；它带 numpy/onnxruntime 等传递依赖（layout 检测用），切片 1.1 走经典路径未实际用到这些，但依赖已落定。
 - **出题数量与质量**：mock LLM 每分块默认出 5 概念、每概念 2 题，自评阈值默认 0.6（accuracy+source-grounding 均值）。真实 LLM 出题数量/质量/Bloom 分布/干扰项是否真基于常见误解待 yufeng 真实 key 验证；完整 6 维度自评与可配阈值延后切片 1.2。
-- **正确答案暂含于 generate-quiz 响应**：`QuestionOut` 当前含 correct_option_index（出题后预览/集成测试用），尚未做"答题前端不含答案"的视图拆分，留切片 1.4 答题反馈子系统补 AttemptView。
+- **真实 LLM 反馈质量**：答题反馈 mock 返回固定文本；真实 LLM 是否真引用原文片段、措辞是否自然、是否给出「你的课件第 X 页提到…」式溯源待 yufeng 真实 key 验证。兜底 `_fallback_feedback` 确定性含页码/正确答案/原文，保证 LLM 抖动时不丢反馈。
+- **答题前端视图拆分**：`AnswerOut` 已不含 correct_option_index（前端经 is_correct + feedback 理解对错）；但出题响应 `QuestionOut` 仍含正确答案（出题后预览/集成测试用）——切片 1.1 后端不单独做「前端不含答案」的视图，留子系统 5 前端在前端层处理（答题界面只取题面+选项，不请求 correct_option_index 即可）。

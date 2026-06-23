@@ -63,3 +63,31 @@ class QuizGenerationResponse(BaseModel):
     quiz_session: QuizSessionOut
     questions: list[QuestionOut]
     concepts: list[ConceptOut]
+
+
+class AnswerRequest(BaseModel):
+    """答题请求：指明作答的题目与所选选项下标。
+
+    带 question_id（而非按会话顺序自动推进）使作答明确、可重答、可乱序，
+    便于切片 1.2 的交叉混合出题与重答场景。
+    """
+
+    question_id: int
+    selected_option_index: int
+
+
+class AnswerOut(BaseModel):
+    """答题响应：判分结果 + 引用原文的 LLM 反馈。
+
+    不含 correct_option_index：前端通过 is_correct 与 feedback 文本理解对错，
+    正确答案不直接以下标暴露（防泄露，对齐切片 1.4 答题视图设计）。
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    quiz_session_id: int
+    question_id: int
+    selected_option_index: int | None
+    is_correct: bool | None
+    feedback: str | None

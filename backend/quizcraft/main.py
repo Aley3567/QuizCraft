@@ -2,12 +2,13 @@
 from fastapi import FastAPI
 
 from quizcraft import __version__
-from quizcraft.routers import documents_router, quiz_router
+from quizcraft.routers import documents_router, quiz_router, quiz_sessions_router
 
 app = FastAPI(title="QuizCraft API", version=__version__)
 
 app.include_router(documents_router)
 app.include_router(quiz_router)
+app.include_router(quiz_sessions_router)
 
 
 @app.get("/health")

@@ -75,3 +75,37 @@ def build_eval_messages(question, *, section_content: str) -> list[Message]:
         f"实际文档片段：\n{section_content}"
     )
     return [Message(role="system", content=system), Message(role="user", content=user)]
+
+
+def build_feedback_messages(
+    question, *, selected_option_index: int, is_correct: bool
+) -> list[Message]:
+    """答题反馈：据学生作答 + 文档原文，生成引用课件具体段落的解释（非通用解析）。
+
+    对齐 DESIGN_DECISIONS 4.3：错题反馈必须引用用户文档原文（页码 + 章节路径 + 片段）。
+    question: {stem, options, correct_option_index, explanation, source_span}
+    """
+    options_text = "\n".join(f"{i}. {o}" for i, o in enumerate(question.options))
+    span = question.source_span or {}
+    page = span.get("page")
+    section_path = span.get("section_path", "")
+    source_text = span.get("text", "")
+    verdict = "正确" if is_correct else "错误"
+    system = (
+        "你是学习辅导老师。根据学生作答情况生成一条简洁的反馈。\n"
+        "核心要求：必须引用学生课件的具体段落（页码 + 章节路径 + 原文片段）来解释为什么这是正确答案，"
+        "而不是给出与课件无关的通用解析。\n"
+        '格式建议：「你的课件第 X 页（章节）提到：…原文…，所以…」。\n'
+        "只返回反馈正文纯文本，不要 JSON，不要 markdown 格式，不要前后引号。"
+    )
+    user = (
+        f"题干：{question.stem}\n"
+        f"选项：\n{options_text}\n"
+        f"学生选择下标：{selected_option_index}（{verdict}）\n"
+        f"正确答案下标：{question.correct_option_index}\n"
+        f"课件页码：{page}\n"
+        f"章节路径：{section_path}\n"
+        f"课件原文片段：{source_text}\n"
+        f"题目预设解析：{question.explanation or ''}\n"
+    )
+    return [Message(role="system", content=system), Message(role="user", content=user)]
