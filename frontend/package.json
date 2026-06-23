@@ -1,0 +1,25 @@
+{
+  "name": "quizcraft-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "QuizCraft 切片 1.1 前端：上传 PDF → 出题 → 答题 → 错题引用原文反馈",
+  "scripts": {
+    "dev": "next dev -p 3000",
+    "build": "next build",
+    "start": "next start -p 3000",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "next": "^15.1.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.0"
+  }
+}

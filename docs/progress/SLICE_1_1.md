@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-进行中 —— 子系统 1-4 完成（后端骨架 / 文档解析 / 出题引擎 / 答题反馈），下一轮做子系统 5「前端」或 6「端到端集成测试」。
+进行中 —— 子系统 1-5 完成（后端骨架 / 文档解析 / 出题引擎 / 答题反馈 / 前端），下一轮做子系统 6「端到端集成测试」。后端 69 测 + 前端 21 测全绿；前后端真机冒烟（CORS + 上传 + 出题端点）已通。
 
 ## 已完成
 
@@ -101,13 +101,32 @@ TDD（先红后绿），15 个新测试，累计 66 全绿。一个 commit。
   test_answer_api（9：答对仍 in_progress / 答错 / 答完结算 score=0.5 / 幂等重答覆盖 / LLM 空兜底 / 404 / 400 已结束 /
   400 不属于 / 422 越界）
 
+### 2026-06-24 轮次 5：前端子系统（Next.js + 上传/答题/错题反馈）+ CORS + 真机建表修复
+
+TDD（纯逻辑先红后绿），前端 21 测全绿、tsc 类型检查通过、next build 通过、前后端真机冒烟通；后端新增 3 测、累计 69 全绿。一个 commit。
+
+- **后端 CORS 中间件**（`config.py` 加 `cors_origins` 默认 `["http://localhost:3000"]` + `main.py` 装 `CORSMiddleware`）：前端 dev server (:3000) 跨域调后端必需。3 测：预检 OPTIONS 放行 / 实际请求回写 allow-origin / 未配置源不放行
+- **后端 lifespan 启动建表**（`main.py` 加 `lifespan` → `Base.metadata.create_all` + `_ensure_data_dir`）：**真机冒烟发现的运行时 bug**——ASGITransport 测试（conftest create_all）掩盖了 dev 首启无表，首次上传 INSERT 命中无表 500。最小修复，不影响 ASGITransport 测试（不触发 startup）。详见 `.codex-loop/ralph-review-notes.md`
+- **前端项目骨架**（`frontend/`，手动 scaffold）：Next.js 15 App Router + React 19 + TypeScript + vitest；package.json/tsconfig/next.config/vitest.config/.gitignore；npm install 67 包成功
+- **前端类型层**（`lib/types.ts`）：对齐后端 Pydantic schema（DocumentDetail/QuestionOut/AnswerOut 等）；`QuestionOut.correct_option_index` 类型存在但 UI 刻意不渲染（防答案泄露，对齐答题视图设计）
+- **前端纯逻辑**（`lib/quiz-state.ts` + `lib/api.ts`，抽离自组件便于单测）：
+  - quiz-state：`isQuizComplete` / `computeScore` / `wrongQuestions` / `formatSourceSpan`（「第X页（章节）」式引用）/ `sourceExcerpt`（超长截断）
+  - api：`apiBaseUrl`（env 覆盖，默认 :8000）/ `buildAnswerBody` / `parseApiError`（FastAPI detail 归一化）/ `uploadDocument`·`generateQuiz`·`submitAnswer` fetch 封装 / `ApiError`
+- **前端 UI**（`app/page.tsx` 单页状态机 idle→uploaded→quizzing→done + 4 组件）：
+  - `Uploader`：拖拽/选择 PDF 上传
+  - `DocumentSummary`：文档信息 + 分块明细折叠
+  - `QuizPlayer`：一题一题答，选完即判分 + 引用原文/页码反馈，确认推进下一题
+  - `ResultView`：总分 + 错题列表（每题 stem + 你的选择 + feedback + 来源原文/页码）
+- **测试**：前端 vitest 21 测（quiz-state 14 + api 7）全绿；`tsc --noEmit` 通过；`next build` 成功（4/4 静态页）
+- **真机冒烟**（后端 uvicorn :8011 mock provider）：/health 200 + CORS 头正确（allow-origin/methods/headers）+ POST /api/documents 201（上传 pymupdf 生成的小 PDF，返回文档详情+分块）+ POST generate-quiz 201（mock 空内容→0 题，端点可达、结构合法）。前端 dev 浏览器交互（Playwright）未做，留 yufeng 人工或子系统 6
+
 ## 子系统进度（按 SLICE_PHASE_1.md 切片 1.1 任务清单）
 
 - [x] 1. 后端骨架（FastAPI 分层 + SQLite + 数据模型 + LLM 抽象层接口）—— 轮次 1
 - [x] 2. 文档解析（PyMuPDF4LLM 提取 + 512-1024 token 结构分块 + POST /api/documents）—— 轮次 2
 - [x] 3. 出题引擎（两步生成 Step1 Concepts / Step2 选择题 + POST /generate-quiz + 简化自评）—— 轮次 3
 - [x] 4. 答题反馈（POST /quiz-sessions/{id}/answer + 即时判分 + LLM 引用原文反馈 + 会话结算）—— 轮次 4
-- [ ] 5. 前端（Next.js App Router + 上传页 + 答题界面 + 错题反馈展示）
+- [x] 5. 前端（Next.js App Router + 上传页 + 答题界面 + 错题反馈展示）—— 轮次 5
 - [ ] 6. 端到端集成测试（LLM mock，SQLite 内存）
 
 ## 验收标准核对
@@ -117,16 +136,13 @@ TDD（先红后绿），15 个新测试，累计 66 全绿。一个 commit。
 - [x] 选择题答完即时判分 —— 子系统 4（确定性判分 selected==correct + Answer 落库 + 会话 status=completed/score 结算）
 - [x] 错题反馈引用课件原文 —— 子系统 4（LLM 据 source_span 生成引用原文反馈；空响应/异常走 `_fallback_feedback` 仍含页码/章节/原文片段）；真实 LLM 反馈质量待真实 key 验证
 - [x] 全流程 API 集成测试基础设施就绪（LLM mock + SQLite 内存）；上传+解析、出题、答题三套 API 端到端用例均绿；端到端全链路（上传→出题→答题→反馈）串成一条集成测试待子系统 6
+- [x] 前端最小 UI（子系统 5）：Next.js 单页状态机（上传 PDF→出题→逐题答题即时反馈→结果+错题引用原文/页码）；tsc 类型检查 + next build 通过、前端纯逻辑 vitest 21 测绿、前后端真机 CORS+上传+出题冒烟通；浏览器人工交互验证待 yufeng（无 Playwright 自动化）
 
 ## 还剩
 
-子系统 5-6：
+子系统 6（最后一个）：
 
-- **子系统 5 前端**：Next.js App Router + 文档上传页（拖拽 PDF）+ 答题界面（一题一题答、即时反馈）+
-  错题反馈展示（引用的文档原文 + 页码）。前端只向后端要答题所需的题面（不取 correct_option_index），
-  经 is_correct + feedback 文本展示对错，正确答案不下标暴露
-- **子系统 6 端到端集成测试**：上传 PDF → 出题 → 答题 → 反馈全链路一条集成测试（LLM mock，SQLite 内存）。
-  后端三套 API 已各自绿，子系统 6 侧重串成一条 + 前端冒烟
+- **子系统 6 端到端集成测试**：上传 PDF → 出题 → 答题 → 反馈全链路串成一条 pytest 集成测试（LLM mock，SQLite 内存，ASGITransport）。后端三套 API 已各自绿、前端真机冒烟已通，子系统 6 侧重全链路一条用例（mock LLM 注入有效 JSON 响应，验证从上传到错题反馈的完整数据流与 source_span 锚定贯穿）+ 可选前端 Playwright 冒烟。完成后切片 1.1 验收全部通过 → STATUS: COMPLETE
 
 ## Blockers
 
@@ -136,4 +152,7 @@ TDD（先红后绿），15 个新测试，累计 66 全绿。一个 commit。
 - **pymupdf4llm 安装**：本轮已 `uv pip install pymupdf4llm` 成功并写入 pyproject + uv.lock；它带 numpy/onnxruntime 等传递依赖（layout 检测用），切片 1.1 走经典路径未实际用到这些，但依赖已落定。
 - **出题数量与质量**：mock LLM 每分块默认出 5 概念、每概念 2 题，自评阈值默认 0.6（accuracy+source-grounding 均值）。真实 LLM 出题数量/质量/Bloom 分布/干扰项是否真基于常见误解待 yufeng 真实 key 验证；完整 6 维度自评与可配阈值延后切片 1.2。
 - **真实 LLM 反馈质量**：答题反馈 mock 返回固定文本；真实 LLM 是否真引用原文片段、措辞是否自然、是否给出「你的课件第 X 页提到…」式溯源待 yufeng 真实 key 验证。兜底 `_fallback_feedback` 确定性含页码/正确答案/原文，保证 LLM 抖动时不丢反馈。
-- **答题前端视图拆分**：`AnswerOut` 已不含 correct_option_index（前端经 is_correct + feedback 理解对错）；但出题响应 `QuestionOut` 仍含正确答案（出题后预览/集成测试用）——切片 1.1 后端不单独做「前端不含答案」的视图，留子系统 5 前端在前端层处理（答题界面只取题面+选项，不请求 correct_option_index 即可）。
+- **答题前端视图拆分**：`AnswerOut` 已不含 correct_option_index（前端经 is_correct + feedback 理解对错）；但出题响应 `QuestionOut` 仍含正确答案（出题后预览/集成测试用）——切片 1.1 后端不单独做「前端不含答案」的视图，留子系统 5 前端在前端层处理（答题界面只取题面+选项，不请求 correct_option_index 即可）。**轮次 5 已落地**：前端 `lib/types.ts` 保留 correct_option_index 类型但 `QuizPlayer`/`ResultView` 刻意不渲染
+- **真机首启建表**：轮次 5 真机冒烟发现 dev server 首启未建表（ASGITransport 测试盲区 → 首次上传 500），已在 `main.py` lifespan 加 `Base.metadata.create_all` 修复。生产部署换 Alembic 迁移需 yufeng 决策（切片 1.1 单机原型 create_all 足够）
+- **前端浏览器交互验证**：轮次 5 前端经 tsc + build + 纯逻辑 vitest + 真机后端链路冒烟验证，但**未做 Playwright 浏览器自动化**（拖拽上传/答题点击/反馈渲染的人机交互）。留 yufeng 人工 `cd frontend && npm run dev`（后端 `PYTHONPATH=backend uvicorn quizcraft.main:app`）实地验证，或子系统 6 补 Playwright
+- **真实 LLM 出题/反馈质量**：前端 + 真机冒烟用 mock provider（默认），mock 无预设响应时出题为空、反馈为兜底文本。真实 LLM 接入（`QUIZCRAFT_LLM_PROVIDER=openai` + key）后端到端 UI 真实出题/反馈质量待 yufeng 验证

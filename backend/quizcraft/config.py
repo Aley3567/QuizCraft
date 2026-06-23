@@ -31,6 +31,11 @@ class Settings(BaseSettings):
     llm_model: str = "gpt-4o"
     llm_base_url: str | None = None
 
+    # CORS 允许源：默认放行前端 dev server（Next.js :3000）。
+    # 自部署/生产用环境变量覆盖，值为 JSON 数组字符串，如：
+    #   QUIZCRAFT_CORS_ORIGINS='["http://localhost:3000","https://quiz.example"]'
+    cors_origins: list[str] = ["http://localhost:3000"]
+
 
 def get_settings() -> Settings:
     """读取当前环境配置（每次调用读最新环境变量）。"""
