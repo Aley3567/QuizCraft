@@ -7,8 +7,13 @@ Ralph and other implementation agents must not mutate GitHub issues, labels, PRs
 ## Work Sources
 
 - PRD issues are reference material, not implementation tickets.
-- Slice issues are implementation candidates only after dependency gates pass.
-- Phase 1 and Phase 2 may also have local slice plans in `docs/plans/SLICE_PHASE_*.md`; local slices can be used as fallback work when no GitHub issue is claimable.
+- TDD behavior-slice issues are the implementation tickets. They must be split
+  by observable user behavior and public interface, not by backend/frontend
+  subsystem.
+- `docs/agents/tdd-issue-split.md` is the canonical queue and issue body
+  contract for implementation agents.
+- Legacy slice plans in `docs/plans/SLICE_PHASE_*.md` are reference material.
+  They can explain product intent, but they do not override the TDD issue split.
 
 ## Ralph Queue
 

@@ -18,6 +18,15 @@ Every issue produced by `/to-issues` should include an `## Agent Triage` section
   - `command or concrete check`
 ```
 
+Every implementation issue must also include TDD fields:
+
+- User behavior
+- Public interface
+- First red test
+- Minimal green
+- Acceptance criteria
+- Out of scope
+
 ## Definitions
 
 - `ready-for-agent`: the agent can work AFK now, dependencies are satisfied, and verification is local or mockable.
@@ -29,11 +38,15 @@ Every issue produced by `/to-issues` should include an `## Agent Triage` section
 
 ## QuizCraft Dependency Gate
 
-Ralph should prefer local dependency order:
+Ralph should prefer the TDD behavior-slice queue in
+`docs/agents/tdd-issue-split.md`:
 
-1. Phase 1 slices 1.1 through 1.5
-2. Phase 2 slices 2.1 through 2.5
-3. Phase 3 issue slices #5 through #9
-4. Phase 4 issue slices #10 through #15
+1. #16 through #19 for the remaining Phase 1 behavior surfaces
+2. #20 through #22 for flashcards and FSRS review
+3. #23 through #27 for courses, adaptive learning, planning, and dashboard
+4. #28 through #31 and #35 through #38 for deployment, portability,
+   multi-user boundaries, imports, operations, and programmatic access
+5. #32 through #34 for the separate terminal challenge track
 
-Phase 3 and Phase 4 issues can be GitHub-ready as specifications while still blocked by Phase 1/2 implementation dependencies.
+Old function-bucket slice issues #5-#15 are superseded and should not be
+claimed.
