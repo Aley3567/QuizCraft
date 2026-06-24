@@ -46,12 +46,15 @@ export interface QuestionOut {
   stem: string;
   options: string[];
   /** 后端返回正确答案下标；答题视图刻意不渲染，防泄露。 */
-  correct_option_index: number;
+  correct_option_index: number | null;
+  answer_text: string | null;
   explanation: string | null;
   source_span: SourceSpan;
   bloom_level: string | null;
   difficulty: string | null;
   self_eval_score: number | null;
+  is_flagged: boolean;
+  in_practice_pool: boolean;
 }
 
 export interface QuizSessionOut {
@@ -75,6 +78,16 @@ export interface AnswerOut {
   quiz_session_id: number;
   question_id: number;
   selected_option_index: number | null;
+  short_answer_text: string | null;
   is_correct: boolean | null;
+  score: number | null;
   feedback: string | null;
+}
+
+export interface QuestionUpdateRequest {
+  stem?: string;
+  options?: string[];
+  correct_option_index?: number;
+  answer_text?: string;
+  explanation?: string;
 }

@@ -7,6 +7,8 @@
 import type {
   AnswerOut,
   DocumentDetail,
+  QuestionOut,
+  QuestionUpdateRequest,
   QuizGenerationResponse,
 } from "./types";
 
@@ -59,13 +61,75 @@ export async function uploadDocument(file: File): Promise<DocumentDetail> {
 }
 
 /** 出题：对文档执行两步生成，返回答题会话 + 题目 + 概念。 */
-export async function generateQuiz(documentId: number): Promise<QuizGenerationResponse> {
-  const resp = await fetch(
-    `${apiBaseUrl()}/api/documents/${documentId}/generate-quiz`,
-    { method: "POST" },
-  );
+export async function generateQuiz(
+  documentId: number,
+  body?: { auto_publish?: boolean },
+): Promise<QuizGenerationResponse> {
+  const init: RequestInit =
+    body == null
+      ? { method: "POST" }
+      : {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        };
+  const resp = await fetch(`${apiBaseUrl()}/api/documents/${documentId}/generate-quiz`, init);
   if (!resp.ok) throw await asApiError(resp);
   return (await resp.json()) as QuizGenerationResponse;
+}
+
+/** 生成草稿题：题目先留在 draft review，不进入 practice pool。 */
+export function generateDraftQuiz(documentId: number): Promise<QuizGenerationResponse> {
+  return generateQuiz(documentId, { auto_publish: false });
+}
+
+/** 读取文档草稿题，供前端预览/编辑/发布。 */
+export async function listDraftQuestions(documentId: number): Promise<QuestionOut[]> {
+  const resp = await fetch(`${apiBaseUrl()}/api/documents/${documentId}/questions/drafts`, {
+    method: "GET",
+  });
+  if (!resp.ok) throw await asApiError(resp);
+  return (await resp.json()) as QuestionOut[];
+}
+
+/** 读取文档练习池题目：已发布且未标记坏题。 */
+export async function listPracticeQuestions(documentId: number): Promise<QuestionOut[]> {
+  const resp = await fetch(`${apiBaseUrl()}/api/documents/${documentId}/questions`, {
+    method: "GET",
+  });
+  if (!resp.ok) throw await asApiError(resp);
+  return (await resp.json()) as QuestionOut[];
+}
+
+/** 编辑题目草稿。 */
+export async function updateQuestion(
+  questionId: number,
+  body: QuestionUpdateRequest,
+): Promise<QuestionOut> {
+  const resp = await fetch(`${apiBaseUrl()}/api/questions/${questionId}`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!resp.ok) throw await asApiError(resp);
+  return (await resp.json()) as QuestionOut;
+}
+
+/** 删除题目草稿。 */
+export async function deleteQuestion(questionId: number): Promise<void> {
+  const resp = await fetch(`${apiBaseUrl()}/api/questions/${questionId}`, {
+    method: "DELETE",
+  });
+  if (!resp.ok) throw await asApiError(resp);
+}
+
+/** 发布草稿题，让它进入 practice pool。 */
+export async function publishQuestion(questionId: number): Promise<QuestionOut> {
+  const resp = await fetch(`${apiBaseUrl()}/api/questions/${questionId}/publish`, {
+    method: "POST",
+  });
+  if (!resp.ok) throw await asApiError(resp);
+  return (await resp.json()) as QuestionOut;
 }
 
 /** 构造答题请求体（与后端 AnswerRequest 对齐）。 */

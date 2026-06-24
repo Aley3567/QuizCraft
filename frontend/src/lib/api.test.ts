@@ -1,6 +1,40 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { apiBaseUrl, buildAnswerBody, parseApiError } from "../lib/api";
+import {
+  apiBaseUrl,
+  buildAnswerBody,
+  deleteQuestion,
+  generateDraftQuiz,
+  listDraftQuestions,
+  parseApiError,
+  publishQuestion,
+  updateQuestion,
+} from "../lib/api";
+
+const question = {
+  id: 7,
+  concept_id: null,
+  section_id: 3,
+  question_type: "multiple_choice",
+  stem: "原题干",
+  options: ["A", "B"],
+  correct_option_index: 0,
+  answer_text: null,
+  explanation: "解析",
+  source_span: { page: 12, section_path: "第一章", text: "原文" },
+  bloom_level: "记忆",
+  difficulty: "easy",
+  self_eval_score: null,
+  is_flagged: false,
+  in_practice_pool: false,
+};
+
+function jsonResponse(body: unknown, init?: ResponseInit): Response {
+  return new Response(JSON.stringify(body), {
+    status: init?.status ?? 200,
+    headers: { "content-type": "application/json" },
+  });
+}
 
 describe("apiBaseUrl", () => {
   beforeEach(() => {
@@ -26,6 +60,102 @@ describe("buildAnswerBody", () => {
     expect(buildAnswerBody(7, 2)).toEqual({
       question_id: 7,
       selected_option_index: 2,
+    });
+  });
+});
+
+describe("draft review API", () => {
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("生成草稿时传 auto_publish=false，使题先留在草稿池", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        quiz_session: {
+          id: 1,
+          document_id: 5,
+          question_ids: [7],
+          status: "in_progress",
+          score: null,
+          total: 1,
+          created_at: null,
+        },
+        questions: [question],
+        concepts: [],
+      }),
+    );
+
+    const result = await generateDraftQuiz(5);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:8000/api/documents/5/generate-quiz",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ auto_publish: false }),
+      },
+    );
+    expect(result.questions[0].in_practice_pool).toBe(false);
+  });
+
+  it("读取草稿题列表用于预览", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(jsonResponse([question]));
+
+    await expect(listDraftQuestions(5)).resolves.toEqual([question]);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:8000/api/documents/5/questions/drafts",
+      { method: "GET" },
+    );
+  });
+
+  it("编辑草稿题干和答案字段后返回持久化后的题目", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ ...question, stem: "新题干", correct_option_index: 1 }),
+    );
+
+    const updated = await updateQuestion(7, {
+      stem: "新题干",
+      correct_option_index: 1,
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith("http://localhost:8000/api/questions/7", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ stem: "新题干", correct_option_index: 1 }),
+    });
+    expect(updated.stem).toBe("新题干");
+    expect(updated.correct_option_index).toBe(1);
+  });
+
+  it("发布草稿后题目进入练习池", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(jsonResponse({ ...question, in_practice_pool: true }));
+
+    const published = await publishQuestion(7);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:8000/api/questions/7/publish",
+      { method: "POST" },
+    );
+    expect(published.in_practice_pool).toBe(true);
+  });
+
+  it("删除草稿使用后端删除端点", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
+
+    await deleteQuestion(7);
+
+    expect(fetchMock).toHaveBeenCalledWith("http://localhost:8000/api/questions/7", {
+      method: "DELETE",
     });
   });
 });

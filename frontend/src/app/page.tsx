@@ -1,14 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { generateQuiz } from "@/lib/api";
+import { generateDraftQuiz } from "@/lib/api";
 import { Uploader } from "@/components/Uploader";
 import { DocumentSummary } from "@/components/DocumentSummary";
+import { DraftReview } from "@/components/DraftReview";
 import { QuizPlayer } from "@/components/QuizPlayer";
 import { ResultView } from "@/components/ResultView";
 import type { AnswerOut, DocumentDetail, QuizGenerationResponse } from "@/lib/types";
 
-type Stage = "idle" | "uploaded" | "quizzing" | "done";
+type Stage = "idle" | "uploaded" | "reviewing" | "quizzing" | "done";
 
 /**
  * 切片 1.1 单页状态机：上传 → 出题 → 逐题答题（即时反馈）→ 结果 + 错题引用原文。
@@ -36,10 +37,10 @@ export default function Page() {
     setBusy(true);
     setError(null);
     try {
-      const gen = await generateQuiz(doc.id);
+      const gen = await generateDraftQuiz(doc.id);
       setQuiz(gen);
       setAnswers({});
-      setStage("quizzing");
+      setStage("reviewing");
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -68,13 +69,32 @@ export default function Page() {
           <DocumentSummary doc={doc} />
           <div className="card" style={{ display: "flex", gap: 12 }}>
             <button className="btn" disabled={busy} onClick={onGenerate}>
-              {busy ? "出题中…" : "生成选择题"}
+              {busy ? "出题中…" : "生成草稿题"}
             </button>
             <button className="btn btn-ghost" onClick={reset}>
               换一份
             </button>
           </div>
         </>
+      )}
+
+      {stage === "reviewing" && quiz && (
+        <DraftReview
+          initialDrafts={quiz.questions}
+          onStartPractice={(questions) => {
+            setQuiz({
+              ...quiz,
+              questions,
+              quiz_session: {
+                ...quiz.quiz_session,
+                question_ids: questions.map((q) => q.id),
+                total: questions.length,
+              },
+            });
+            setAnswers({});
+            setStage("quizzing");
+          }}
+        />
       )}
 
       {stage === "quizzing" && quiz && (

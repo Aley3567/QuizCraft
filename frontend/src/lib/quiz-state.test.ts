@@ -15,7 +15,9 @@ function ans(isCorrect: boolean): AnswerOut {
     quiz_session_id: 1,
     question_id: 1,
     selected_option_index: 0,
+    short_answer_text: null,
     is_correct: isCorrect,
+    score: null,
     feedback: "x",
   };
 }
@@ -29,6 +31,7 @@ function mkQ(id: number, span?: Partial<SourceSpan>): QuestionOut {
     stem: `Q${id}`,
     options: ["a", "b"],
     correct_option_index: 0,
+    answer_text: null,
     explanation: null,
     source_span: {
       page: span?.page ?? 12,
@@ -38,6 +41,8 @@ function mkQ(id: number, span?: Partial<SourceSpan>): QuestionOut {
     bloom_level: null,
     difficulty: null,
     self_eval_score: null,
+    is_flagged: false,
+    in_practice_pool: true,
   };
 }
 
