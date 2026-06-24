@@ -61,6 +61,11 @@ class Question(TimestampMixin, Base):
     self_eval_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     # 子系统5：标记坏题（is_flagged=True → 移出 practice pool，练习池列表不再返回）
     is_flagged: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # 子系统4：是否已确认进练习池。
+    # False=草稿（生成后待预览/编辑/确认），True=已进练习池（GET 练习池列表可见）。
+    # generate-quiz 默认 auto_publish=True 直接进池（保留切片 1.1 生成→可答闭环）；
+    # auto_publish=False 生成草稿题，需 POST /api/questions/{id}/publish 确认后才进池。
+    in_practice_pool: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
 
 class QuizSession(TimestampMixin, Base):

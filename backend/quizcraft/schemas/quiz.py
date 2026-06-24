@@ -45,6 +45,8 @@ class QuestionOut(BaseModel):
     self_eval_score: float | None
     # 子系统5：坏题标记（True → 已移出 practice pool）
     is_flagged: bool
+    # 子系统4：是否已确认进练习池（False=草稿待确认，True=练习池可见）
+    in_practice_pool: bool
 
 
 class QuizSessionOut(BaseModel):
@@ -116,6 +118,8 @@ class QuizGenerationRequest(BaseModel):
     - concepts_per_section / questions_per_concept：底层出题密度旋钮
     - self_eval_threshold（子系统6）：6 维自评淘汰阈值 0-1，None=用默认 2/3（等价总分 4）；
       设 0 = 保留全部题不淘汰（仍自评记分），调高则更严格淘汰低分题
+    - auto_publish（子系统4）：生成即进练习池（True，默认，保留 1.1 生成→可答闭环）；
+      False=生成草稿题（in_practice_pool=False），需预览编辑后 POST /publish 确认进池
     """
 
     number: int | None = None
@@ -126,3 +130,23 @@ class QuizGenerationRequest(BaseModel):
     concepts_per_section: int = 5
     questions_per_concept: int = 2
     self_eval_threshold: float | None = None
+    auto_publish: bool = True
+
+
+class QuestionUpdateRequest(BaseModel):
+    """题目编辑请求（切片 1.2 子系统4）：部分更新，字段为 None 表示不更新。
+
+    - stem：题干文本
+    - options：选择题选项列表（简答题保持空列表）
+    - correct_option_index：选择题正确答案下标（不传=保留原值；选择题必有正确答案）
+    - answer_text：简答题参考答案/rubric
+    - explanation：题解
+
+    按题型校验在路由层完成（选择题需 options 非空 + correct 在范围内；简答需 answer_text 非空）。
+    """
+
+    stem: str | None = None
+    options: list | None = None
+    correct_option_index: int | None = None
+    answer_text: str | None = None
+    explanation: str | None = None

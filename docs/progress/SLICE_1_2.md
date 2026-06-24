@@ -6,8 +6,8 @@
 
 ## 当前状态
 
-子系统 1-3 + 5 + 6 后端完成（LLM 配置 + 出题参数 + 简答评分 + 交叉出题/标记坏题 + 完整 6 维自评）。
-累计 151 测全绿（本轮新增 15 测）。
+子系统 1-6 后端完成（LLM 配置 + 出题参数 + 简答评分 + 交叉出题/标记坏题 + 完整 6 维自评 +
+题目预览编辑/删除/确认进池）。累计 166 测全绿（本轮新增 15 测）。
 
 - 子系统 1 后端：API key Fernet 加密存储 + KV settings 表 + GET/POST /api/settings/llm + 连通测试
 - 子系统 2 后端：出题参数 number / difficulty_range / question_types / chapter_scope /
@@ -15,11 +15,15 @@
   POST /api/documents/{id}/generate-quiz 接受可选 body（无 body 退回切片 1.1 默认行为）
 - 子系统 3 后端：简答题型生成（short_answer）+ LLM rubric 评分 0-1 + 引用文档反馈 +
   Answer 按题型分流（选择确定性判分 / 简答 LLM 评分）+ 混合会话结算
+- 子系统 4 后端：Question.in_practice_pool 字段 + PUT /api/questions/{id} 编辑（按题型校验）+
+  DELETE /api/questions/{id} 删除（清理引用会话 question_ids）+ POST /api/questions/{id}/publish
+  确认进池 + GET /api/documents/{id}/questions/drafts 草稿预览 + generate-quiz auto_publish 参数
+  （默认 True 生成即进池，保留 1.1 闭环；False 生成草稿待确认）
 - 子系统 6 后端：完整 6 维自评（accuracy/clarity/difficulty/source_grounding/
   non_trivial/non_ambiguous）+ 向后兼容部分维度 + 可配阈值（默认 2/3 等价总分 4）+
   self_eval_scores 明细（内存）
 
-前端 Settings UI、运行时出题/答题改用 DB 配置、题目预览编辑、交叉出题——均待后续轮次。
+前端 Settings UI、运行时出题/答题改用 DB 配置、交叉出题前端——均待后续轮次。
 
 ## 已完成
 
@@ -224,6 +228,50 @@ test_questions_api（8 新文件：flag 落库+幂等/unflag/404/练习池排除
   当前每次出题新生成题（不复用已存题），标记的排除体现在练习池列表查询；未来从已存题复用出题
   （错题变体/复习）时排除 is_flagged=True 的题
 
+### 2026-06-24 轮次 6：题目预览编辑后端核心（子系统 4）
+
+TDD（先红后绿），15 个新测试（11 编辑/删除/publish/草稿 + 2 未知 404 + 2 端到端 generate 草稿），
+累计 166 全绿。一个 commit。
+
+**数据模型扩展（`models/quiz.py`）**
+- `Question.in_practice_pool: bool`（默认 True，nullable=False）
+  - False=草稿（生成后待预览/编辑/确认），True=已进练习池（GET 练习池列表可见）
+  - 与子系统5 is_flagged 正交：flagged=坏题移出池，draft=未确认进池；GET 练习池两者皆排除
+
+**出题引擎扩展（`routers/quiz.py`）**
+- `generate_quiz_for_document` 落库 Question 时设 `in_practice_pool=params.auto_publish`
+  - 默认 auto_publish=True（保留切片 1.1 生成→可答闭环：生成即进池、QuizSession 立即可答）
+  - auto_publish=False 生成草稿题，需预览编辑后 POST /publish 确认进池
+- `QuizGenerationRequest.auto_publish: bool = True`
+- `list_practice_pool_questions` 过滤加 `in_practice_pool.is_(True)`（草稿不返回，保留 is_flagged 排除）
+- 新增 `GET /api/documents/{id}/questions/drafts`：返回草稿题（in_practice_pool=False，排除 flagged）
+
+**编辑/删除/确认路由（`routers/questions.py`）**
+- `PUT /api/questions/{id}`：部分更新（None 字段保留原值）；按题型校验编辑后合法性
+  - 选择题：options 非空 + correct_option_index 在范围内（不合法 → 422）
+  - 简答题：answer_text 非空白（空 → 422）
+  - 404 题不存在
+- `DELETE /api/questions/{id}`：删题 + 清理引用它的 QuizSession.question_ids（JSON 列表移除该 id）
+  - Answer 表 question_id 有 ondelete=CASCADE 级联删；question_ids 是 JSON 非外键需手动移除
+  - 避免进行中会话结算时 set(quiz.question_ids) 残留已删题 id 永不可答
+  - 404 题不存在；返回 204 No Content
+- `POST /api/questions/{id}/publish`：确认进池（in_practice_pool=True），幂等
+
+**Schema（`schemas/quiz.py`）**
+- `QuestionOut` 加 `in_practice_pool: bool`
+- 新增 `QuestionUpdateRequest`（stem/options/correct_option_index/answer_text/explanation 全可选）
+
+**测试**：test_questions_preview_api（15 新文件）：编辑选择题 stem/options/correct + 部分更新保留 +
+编辑简答 answer_text + correct 越界 422 + 简答空 answer_text 422 + 编辑 404 +
+删除落库 + 删除 404 + 删除清理引用会话 question_ids（全新 session 读 DB 真实值，绕过 identity map）+
+publish 落库+幂等 + publish 404 + 草稿列表排除已进池 + 草稿 404 + 端到端 generate auto_publish=False→
+drafts 可见/练习池不可见→publish→练习池可见 + 默认 auto_publish=True 生成即进池
+
+**真机冒烟未做（判断）**：子系统4 = DB CRUD（PUT/DELETE/publish/drafts 不调 LLM、不构造外部 client）+
+generate-quiz 仅加 in_practice_pool 落库（LLM 路径不变，端到端用 llm_mock 进程内 client 无外部 httpx
+构造盲区）。ASGITransport 测试已覆盖路由语义/落库/JSON 列清理/端到端草稿闭环。故未做 uvicorn 冒烟，
+避免重复本机 SOCKS 代理干扰。
+
 ## 子系统进度（按 SLICE_PHASE_1.md 切片 1.2 任务清单）
 
 - [~] 1. LLM 配置 UI 与后端（Settings 页 + provider/key/model/base_url 存 SQLite settings 表 + POST /api/settings/llm + 测试调用连通验证）
@@ -237,7 +285,10 @@ test_questions_api（8 新文件：flag 落库+幂等/unflag/404/练习池排除
 - [ ] 3. 简答题生成与评分（short_answer 题型 + LLM rubric 评分 + 异步轮询）
   - [x] 后端：short_answer 题型生成 + LLM rubric 评分 0-1 + 引用文档反馈 + Answer 按题型分流 + 混合会话结算 —— 轮次 3
   - [ ] 异步评分 + 前端轮询（同步评分已通，异步状态机留真实 LLM 接入后）
-- [ ] 4. 题目预览与编辑（预览模式 + 编辑/删除 + 确认进练习池）
+- [~] 4. 题目预览与编辑（预览模式 + 编辑/删除 + 确认进练习池）
+  - [x] 后端：in_practice_pool 字段 + PUT 编辑（按题型校验）+ DELETE 删除（清理引用会话）+
+    POST publish 确认进池 + GET /drafts 草稿预览 + auto_publish 参数 —— 轮次 6
+  - [ ] 前端预览编辑界面（列表 + 编辑表单 + 删除按钮 + 确认进池）
 - [x] 5. 交叉出题 + 标记坏题（按 concept 交叉混合 + 坏题移出 practice pool） —— 轮次 5
   - [x] 后端：interleave_questions 纯函数（round-robin by concept）+ router 落库前交错 +
     Question.is_flagged 字段 + POST/DELETE /api/questions/{id}/flag + GET /api/documents/{id}/questions
@@ -250,18 +301,20 @@ test_questions_api（8 新文件：flag 落库+幂等/unflag/404/练习池排除
 - [ ] Web UI Settings 页配置 LLM provider + API key 后，测试调用成功 —— 后端 API + 连通测试已通；前端 UI 待
 - [ ] 出题时可选择题型/难度/数量/章节范围 —— 子系统 2 后端已通；前端面板待
 - [x] 简答题提交后 LLM 评分返回 0-1 + 引用文档解释 —— 子系统 3 后端（同步评分；异步轮询留后续）
-- [ ] 题目生成后可预览/编辑/删除，确认后进练习池 —— 子系统 4
+- [~] 题目生成后可预览/编辑/删除，确认后进练习池 —— 子系统 4 后端（auto_publish=False 草稿→编辑/删除→
+  publish 进池完整闭环；auto_publish=True 默认生成即进池保留 1.1 闭环）；前端预览编辑 UI 待
 - [x] 答题时题目顺序交叉混合 —— 子系统 5（轮次 5，按 concept round-robin 交错，相邻题不同 concept）
 - [x] 可标记坏题 —— 子系统 5（轮次 5，is_flagged + flag/unflag API + 练习池列表排除）
 - [x] 完整 6 维度自评 + 可配阈值 —— 子系统 6（轮次 4）
 
 ## 还剩
 
-切片 1.2 子系统 1-3 + 5 + 6 后端完成，剩余子系统 1 前端 + 子系统 2 前端/多题型 + 子系统 3 异步轮询 +
-子系统 4（预览编辑）+ 子系统 5 前端（标记坏题按钮）。下一轮优先做子系统 4 题目预览编辑后端
-（预览模式列表已有 GET /api/documents/{id}/questions 基础，补编辑 stem/options/correct + 删除 +
-确认进 practice pool），或子系统 1 后端增量"运行时改用 DB 配置"（让已存 DB 配置生效，涉及所有
-路由 LLM 依赖签名变 async，单独一轮做更稳妥）。
+切片 1.2 子系统 1-6 后端全部完成，剩余：子系统 1 前端 + 子系统 2 前端/多题型 + 子系统 3 异步轮询 +
+子系统 4 前端（预览编辑 UI）+ 子系统 5 前端（标记坏题按钮）。下一轮可选：
+- 子系统 1 后端增量"运行时改用 DB 配置"（让已存 DB 配置生效，涉及所有路由 LLM 依赖签名变 async，
+  单独一轮做更稳妥）
+- 前端轮次（Settings 页 / 出题配置面板 / 预览编辑 / 标记坏题 UI），需 yufeng 浏览器验证
+- 或收口切片 1.2 后端（子系统 1-6 后端验收已满足）后推进切片 1.3（闪卡 FSRS，依赖 1.1+1.2 已满足）
 
 ## Blockers
 
@@ -277,10 +330,11 @@ test_questions_api（8 新文件：flag 落库+幂等/unflag/404/练习池排除
 - **异步简答评分轮询**：本轮同步评分（提交即返回 score+feedback）。真实 LLM 评分耗时数秒到数十秒，
   同步会阻塞 HTTP。异步状态机（Answer pending→scored）+ 轮询端点留真实 LLM 接入后再做。
 - **前端浏览器人机交互**：无 Playwright 自动化，Settings 页/简答作答/标记坏题 UI 待 yufeng `cd frontend && npm run dev` 实地验证。
-- **is_flagged 新字段真机 DB 迁移**：本轮给 questions 表加 is_flagged 列。测试用内存 SQLite
-  （conftest create_all 每次新建，含新列）不受影响；但真机 dev DB 文件若已存在（前轮 create_all 建的
-  旧 questions 表无此列），lifespan create_all 不 ALTER 加列 → flag/practice-pool 端点命中无列报错。
-  真机需删 dev DB 文件重建（create_all 单机原型限制，生产换 Alembic 迁移，同切片 1.1 blocker）。
-- **真机冒烟未做（判断）**：子系统5 是纯逻辑交错 + DB CRUD（flag/practice-pool 不调 LLM、不构造外部
-  client，无轮次1/3 构造期副作用盲区）；ASGITransport 测试已覆盖路由语义、落库、查询排除。故未做
-  uvicorn 真机冒烟，避免重复本机 SOCKS 代理干扰。
+- **is_flagged / in_practice_pool 新字段真机 DB 迁移**：轮次5 给 questions 表加 is_flagged 列，
+  轮次6 加 in_practice_pool 列。测试用内存 SQLite（conftest create_all 每次新建，含新列）不受影响；
+  但真机 dev DB 文件若已存在（前轮 create_all 建的旧 questions 表无此两列），lifespan create_all
+  只 CREATE TABLE IF NOT EXISTS 不 ALTER 加列 → flag/practice-pool/edit/delete/publish/drafts 端点
+  命中无列报错。真机需删 dev DB 文件重建（create_all 单机原型限制，生产换 Alembic 迁移，同切片 1.1 blocker）。
+- **真机冒烟未做（判断）**：子系统4/5 是纯逻辑交错 + DB CRUD（不调 LLM、不构造外部 client，无轮次1/3
+  构造期副作用盲区）；ASGITransport 测试已覆盖路由语义、落库、查询排除、JSON 列清理、端到端草稿闭环。
+  故未做 uvicorn 真机冒烟，避免重复本机 SOCKS 代理干扰。

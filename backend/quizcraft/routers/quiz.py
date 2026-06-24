@@ -135,6 +135,8 @@ async def generate_quiz_for_document(
             bloom_level=gq.bloom_level,
             difficulty=gq.difficulty,
             self_eval_score=gq.self_eval_score,
+            # 子系统4：auto_publish=True（默认）生成即进练习池；False 生成草稿待确认
+            in_practice_pool=params.auto_publish,
         )
         session.add(question)
         await session.flush()
@@ -164,16 +166,47 @@ async def list_practice_pool_questions(
     document_id: int,
     session: AsyncSession = Depends(get_session),
 ) -> list[QuestionOut]:
-    """列出文档练习池题目（子系统5）：排除 is_flagged=True 的坏题（已移出 practice pool）。
+    """列出文档练习池题目（子系统5 + 子系统4）：
+    仅返回已确认进池（in_practice_pool=True）且未标记坏题（is_flagged=False）的题。
 
-    子系统4 预览编辑的列表基础；本轮只读（编辑/删除/确认进池留子系统4）。
+    草稿题（auto_publish=False 生成的待确认题）在 GET /{document_id}/questions/drafts 预览。
     """
     doc = await session.get(Document, document_id)
     if doc is None:
         raise HTTPException(status_code=404, detail="文档不存在")
     result = await session.execute(
         select(Question)
-        .where(Question.document_id == document_id, Question.is_flagged.is_(False))
+        .where(
+            Question.document_id == document_id,
+            Question.is_flagged.is_(False),
+            Question.in_practice_pool.is_(True),
+        )
+        .order_by(Question.id)
+    )
+    questions = result.scalars().all()
+    return [QuestionOut.model_validate(q) for q in questions]
+
+
+@router.get("/{document_id}/questions/drafts", response_model=list[QuestionOut])
+async def list_draft_questions(
+    document_id: int,
+    session: AsyncSession = Depends(get_session),
+) -> list[QuestionOut]:
+    """列出文档草稿题（子系统4 预览模式）：in_practice_pool=False 的待确认题。
+
+    预览界面展示草稿题 + 来源引用，供用户编辑（PUT）/删除（DELETE）/确认进池（POST publish）。
+    标记坏题（is_flagged=True）的草稿题不返回（已从流程移出）。
+    """
+    doc = await session.get(Document, document_id)
+    if doc is None:
+        raise HTTPException(status_code=404, detail="文档不存在")
+    result = await session.execute(
+        select(Question)
+        .where(
+            Question.document_id == document_id,
+            Question.is_flagged.is_(False),
+            Question.in_practice_pool.is_(False),
+        )
         .order_by(Question.id)
     )
     questions = result.scalars().all()
