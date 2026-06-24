@@ -8,10 +8,11 @@
 **STATUS: IN PROGRESS**
 
 - 当前队列：GitHub TDD issues #16-#38；旧功能桶 issues #5-#15 已 superseded。
-- 本轮完成：#19 `[TDD 1E] LLM settings UI and runtime smoke`
-  前端 LLM Settings 面板 + settings API client + 非致命连接失败显示 + 省略 key 保留已有密钥。
-- 当前可领取：待 monitor 重新生成 `.codex-loop/queue.*` 后判定；本轮未修改 GitHub issue/label/PR。
-- 下一步：刷新 Ralph queue；只领取 queue 标记 `claimable_now=true` 的最小编号 GitHub issue。
+- 本轮推进：#20 `[TDD 2A] Flashcards from concepts and wrong answers`
+  错题提交后自动生成 source-linked elevated flashcard，`GET /api/flashcards`
+  支持按 document/concept 列表查询。
+- 当前可领取：#20 仍 `IN PROGRESS`；本轮未修改 GitHub issue/label/PR。
+- 下一步：继续 #20 的下一个最小行为增量：概念闪卡创建与去重，或补错题类型覆盖后再进入列表 UI。
 - 监控节奏：Codex heartbeat 每 20 分钟检查一次；同一 worktree 只允许一个 Ralph runner 写代码。
 
 ## 切片完成情况
@@ -24,7 +25,8 @@
 | #17 Quiz generation controls UI | COMPLETE | docs/progress/ISSUE_17.md | 前端 generation controls + 参数请求行为完成 |
 | #18 Mixed question answering loop | COMPLETE | docs/progress/ISSUE_18.md | 前端混合题型答题和结果汇总完成 |
 | #19 LLM settings UI/runtime smoke | COMPLETE | docs/progress/ISSUE_19.md | Settings UI + runtime smoke 验证完成 |
-| #20-#38 | 未开始/阻塞 | docs/progress/ISSUE_<n>.md | 依赖前序 TDD issue |
+| #20 Flashcards from concepts and wrong answers | IN PROGRESS | docs/progress/ISSUE_20.md | 错题 source-linked elevated flashcard + 列表 API 完成；概念闪卡/去重/UI 待后续 |
+| #21-#38 | 未开始/阻塞 | docs/progress/ISSUE_<n>.md | 依赖前序 TDD issue |
 
 ## 已完成总览
 
@@ -105,6 +107,15 @@
   已存密钥；显式传 null/空值仍可清空。
 - 验证：前端 33 测、typecheck、build 通过；后端 200 测通过；Chrome headless 桌面/移动渲染无水平溢出，openai 无 key
   显示非致命黄色连接失败反馈。
+
+### TDD Issue #20（Flashcards from concepts and wrong answers）
+
+- 后端新增 `Flashcard` 模型与 `GET /api/flashcards` 列表接口，可按 `document_id` 或 `concept_id` 过滤。
+- `POST /api/quiz-sessions/{id}/answer` 在错题或部分得分答案后创建一张 `origin=wrong_answer`、
+  `priority=elevated`、带 `source_span` 的闪卡，front 使用原题题干，back 包含正确答案、来源原文和反馈。
+- `source_answer_id` 唯一约束避免同一作答重复生成错题卡；FSRS 调度、概念卡创建、列表 UI 留后续增量。
+- 验证：新闪卡 API 测试红灯为 404；实现后 `backend/tests/test_flashcards_api.py` 绿；相关答题测试 22 绿；
+  后端全量 201 绿。
 
 ## Blockers（跨切片，待 yufeng 外部资源）
 

@@ -18,6 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from quizcraft.dependencies import get_llm_client, get_session
+from quizcraft.models.flashcard import Flashcard, FlashcardOrigin, FlashcardPriority
 from quizcraft.models.quiz import Answer, Question, QuestionType, QuizSession, SessionStatus
 from quizcraft.schemas.quiz import AnswerOut, AnswerRequest
 from quizcraft.services.llm import LLMClient
@@ -26,6 +27,62 @@ from quizcraft.services.quiz.fill_blank import score_fill_blank
 from quizcraft.services.quiz.short_answer import score_short_answer
 
 router = APIRouter(prefix="/api/quiz-sessions", tags=["quiz"])
+
+
+def _correct_answer_text(question: Question) -> str:
+    """Return a user-facing correct answer string for a flashcard back."""
+    if question.question_type == QuestionType.MULTIPLE_CHOICE:
+        index = question.correct_option_index
+        if index is not None and 0 <= index < len(question.options):
+            return str(question.options[index])
+        return ""
+    return question.answer_text or ""
+
+
+def _answer_should_create_flashcard(question: Question, answer: Answer) -> bool:
+    """Wrong objective answers and partial/open-ended misses become cards."""
+    if question.question_type in {QuestionType.MULTIPLE_CHOICE, QuestionType.FILL_BLANK}:
+        return answer.is_correct is False
+    if question.question_type == QuestionType.SHORT_ANSWER:
+        return answer.score is not None and answer.score < 1
+    return False
+
+
+async def _create_wrong_answer_flashcard(
+    db: AsyncSession, question: Question, answer: Answer
+) -> None:
+    """Create one elevated card for a wrong answer, idempotent by source answer."""
+    existing = (
+        await db.execute(
+            select(Flashcard).where(Flashcard.source_answer_id == answer.id)
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        return
+
+    correct_answer = _correct_answer_text(question)
+    source_text = (question.source_span or {}).get("text") or ""
+    back_parts = []
+    if correct_answer:
+        back_parts.append(f"正确答案：{correct_answer}")
+    if source_text:
+        back_parts.append(f"来源：{source_text}")
+    if answer.feedback:
+        back_parts.append(f"反馈：{answer.feedback}")
+
+    db.add(
+        Flashcard(
+            document_id=question.document_id,
+            concept_id=question.concept_id,
+            source_answer_id=answer.id,
+            source_question_id=question.id,
+            front=question.stem,
+            back="\n".join(back_parts) or question.explanation or question.stem,
+            source_span=question.source_span,
+            origin=FlashcardOrigin.WRONG_ANSWER,
+            priority=FlashcardPriority.ELEVATED,
+        )
+    )
 
 
 @router.post("/{session_id}/answer", response_model=AnswerOut)
@@ -118,6 +175,9 @@ async def submit_answer(
         existing.feedback = feedback
         answer = existing
     await db.flush()
+
+    if _answer_should_create_flashcard(question, answer):
+        await _create_wrong_answer_flashcard(db, question, answer)
 
     # 全部题目作答完毕 → 结算会话（选择题按 is_correct 计 1，简答题按 score 计分）
     rows = (
