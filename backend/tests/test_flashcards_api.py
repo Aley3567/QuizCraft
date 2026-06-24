@@ -5,8 +5,10 @@ that can be listed through the flashcard API. LLM calls are mocked through the a
 dependency override.
 """
 import pytest
+from sqlalchemy import select
 
 from quizcraft.models.document import Concept, Document, DocumentStatus, Section
+from quizcraft.models.flashcard import ReviewLog
 from quizcraft.models.quiz import Question, QuestionType, QuizSession, SessionStatus
 
 
@@ -245,6 +247,50 @@ async def test_create_concept_flashcards_without_duplicates(session, client):
     list_resp = await client.get(f"/api/flashcards?document_id={document_id}")
     assert list_resp.status_code == 200, list_resp.text
     assert [item["id"] for item in list_resp.json()] == [card["id"]]
+
+
+async def test_reviewing_new_due_card_records_log_and_updates_schedule(session, client):
+    """New card -> due list -> Good review records log and moves schedule forward."""
+    document_id, concept_id, _quiz_id, _question_id = await _seed_concept_question(session)
+    create_resp = await client.post(
+        "/api/flashcards/from-concepts",
+        json={"concept_ids": [concept_id]},
+    )
+    assert create_resp.status_code == 201, create_resp.text
+    card = create_resp.json()[0]
+
+    due_resp = await client.get("/api/flashcards/due")
+    assert due_resp.status_code == 200, due_resp.text
+    due_cards = due_resp.json()
+    assert [item["id"] for item in due_cards] == [card["id"]]
+    assert due_cards[0]["document_id"] == document_id
+    assert due_cards[0]["state"] == "new"
+    original_due = due_cards[0]["due_date"]
+
+    review_resp = await client.post(
+        f"/api/flashcards/{card['id']}/review",
+        json={"rating": "good"},
+    )
+
+    assert review_resp.status_code == 200, review_resp.text
+    reviewed = review_resp.json()
+    assert reviewed["id"] == card["id"]
+    assert reviewed["state"] == "review"
+    assert reviewed["reps"] == 1
+    assert reviewed["lapses"] == 0
+    assert reviewed["last_review"] is not None
+    assert reviewed["due_date"] != original_due
+    assert reviewed["scheduled_days"] >= 1
+
+    due_after_review = await client.get("/api/flashcards/due")
+    assert due_after_review.status_code == 200, due_after_review.text
+    assert due_after_review.json() == []
+
+    logs = (await session.execute(select(ReviewLog))).scalars().all()
+    assert len(logs) == 1
+    assert logs[0].flashcard_id == card["id"]
+    assert logs[0].rating == "good"
+    assert logs[0].scheduled_days == reviewed["scheduled_days"]
 
 
 @pytest.mark.parametrize(

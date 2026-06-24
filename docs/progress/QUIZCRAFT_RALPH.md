@@ -8,12 +8,11 @@
 **STATUS: IN PROGRESS**
 
 - 当前队列：GitHub TDD issues #16-#38；旧功能桶 issues #5-#15 已 superseded。
-- 本轮推进：#20 `[TDD 2A] Flashcards from concepts and wrong answers`
-  完成短答/填空错题闪卡 public API 覆盖，并修复改答正确后仍残留
-  stale wrong-answer card 的行为。
-- 当前可领取：#20 本地进度已 `COMPLETE`；本轮未修改 GitHub issue/label/PR。
-- 下一步：重新构建 `.codex-loop/queue.*` 后按本地依赖门评估 #21；不要直接执行当前快照中仍
-  `claimable=no` 的条目。
+- 本轮推进：#21 `[TDD 2B] FSRS due-card review session`
+  完成第一段后端 public API 增量：新闪卡进入 due 列表，Good review 更新调度并写入 ReviewLog。
+- 当前可领取：#21 本地进度为 `IN PROGRESS`；本轮未修改 GitHub issue/label/PR。
+- 下一步：继续 #21 的下一个最小增量，优先补 Again/Hard/Easy review 行为覆盖或前端
+  show-front/reveal-back/rate-card flow。
 - 监控节奏：Codex heartbeat 每 20 分钟检查一次；同一 worktree 只允许一个 Ralph runner 写代码。
 
 ## 切片完成情况
@@ -27,7 +26,8 @@
 | #18 Mixed question answering loop | COMPLETE | docs/progress/ISSUE_18.md | 前端混合题型答题和结果汇总完成 |
 | #19 LLM settings UI/runtime smoke | COMPLETE | docs/progress/ISSUE_19.md | Settings UI + runtime smoke 验证完成 |
 | #20 Flashcards from concepts and wrong answers | COMPLETE | docs/progress/ISSUE_20.md | 错题 source-linked elevated flashcard + 概念闪卡幂等创建 + 列表 API + 结果页闪卡列表 + 短答/填空错题更正清理完成 |
-| #21-#38 | 未开始/阻塞 | docs/progress/ISSUE_<n>.md | 依赖前序 TDD issue |
+| #21 FSRS due-card review session | IN PROGRESS | docs/progress/ISSUE_21.md | 后端 due list + Good review + ReviewLog 首增量完成；剩余 rating 覆盖与 review UI |
+| #22-#38 | 未开始/阻塞 | docs/progress/ISSUE_<n>.md | 依赖前序 TDD issue |
 
 ## 已完成总览
 
@@ -130,6 +130,19 @@
   wrong-answer card，避免复习池保留已修正错误。
 - 验证：新增测试红灯为改答正确后 `GET /api/flashcards` 仍返回旧卡；实现后
   `backend/tests/test_flashcards_api.py` 4 绿、答题+闪卡相关 25 绿、后端全量 204 绿。
+
+### TDD Issue #21（FSRS due-card review session）
+
+- 后端新增闪卡调度字段：`stability`、`difficulty`、`due_date`、`last_review`、`reps`、`lapses`。
+- 新增 `ReviewLog` 记录每次 public review action：rating、reviewed_at、elapsed_days、scheduled_days、
+  stability、difficulty。
+- `GET /api/flashcards/due` 返回新卡和当前到期卡；`POST /api/flashcards/{id}/review` 接受
+  Again/Hard/Good/Easy（大小写不敏感），更新 state/due_date/reps/lapses，并返回本次 scheduled_days。
+- 首个 public API 行为测试覆盖：概念卡创建后出现在 due 列表，Good review 后记录 ReviewLog、due_date 改变、
+  reps=1、lapses=0，并从 due 列表移除。
+- 验证：新增测试红灯为 `ReviewLog` 不存在；实现后 `backend/tests/test_flashcards_api.py` 5 绿、
+  答题+闪卡相关 26 绿、后端全量 205 绿；`git diff --check` 通过。
+- 剩余：Again/Hard/Easy 显式覆盖、翻卡评分前端 UI、是否引入真实 py-fsrs 依赖的后续收敛。
 
 ## Blockers（跨切片，待 yufeng 外部资源）
 

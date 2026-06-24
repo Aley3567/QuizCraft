@@ -1,14 +1,28 @@
 """Flashcard API routes."""
 from __future__ import annotations
 
+from datetime import datetime, timedelta
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from quizcraft.dependencies import get_session
 from quizcraft.models.document import Concept
-from quizcraft.models.flashcard import Flashcard, FlashcardOrigin, FlashcardPriority
-from quizcraft.schemas.flashcard import ConceptFlashcardCreate, FlashcardOut
+from quizcraft.models.flashcard import (
+    Flashcard,
+    FlashcardOrigin,
+    FlashcardPriority,
+    FlashcardRating,
+    ReviewLog,
+    utcnow_naive,
+)
+from quizcraft.schemas.flashcard import (
+    ConceptFlashcardCreate,
+    FlashcardOut,
+    FlashcardReviewOut,
+    FlashcardReviewRequest,
+)
 
 router = APIRouter(prefix="/api/flashcards", tags=["flashcards"])
 
@@ -38,6 +52,36 @@ def _concept_back(concept: Concept) -> str:
     return "\n".join(parts) or concept.name
 
 
+def _schedule_review(card: Flashcard, rating: FlashcardRating, now: datetime) -> int:
+    """Small deterministic FSRS-style scheduler for the public review behavior."""
+    if rating == FlashcardRating.AGAIN:
+        card.state = "relearning" if card.reps else "learning"
+        card.lapses += 1
+        card.stability = max(0.1, card.stability * 0.5)
+        card.difficulty = min(10.0, card.difficulty + 1.0)
+        scheduled_days = 0
+    elif rating == FlashcardRating.HARD:
+        card.state = "review"
+        card.stability = max(1.0, card.stability + 0.5)
+        card.difficulty = min(10.0, card.difficulty + 0.4)
+        scheduled_days = 1
+    elif rating == FlashcardRating.GOOD:
+        card.state = "review"
+        card.stability = max(2.5, card.stability + 1.5)
+        card.difficulty = max(1.0, card.difficulty - 0.2)
+        scheduled_days = 1 if card.reps == 0 else max(2, round(card.stability))
+    else:
+        card.state = "review"
+        card.stability = max(4.0, card.stability + 3.0)
+        card.difficulty = max(1.0, card.difficulty - 0.6)
+        scheduled_days = 4 if card.reps == 0 else max(4, round(card.stability * 1.5))
+
+    card.reps += 1
+    card.last_review = now
+    card.due_date = now + timedelta(days=scheduled_days)
+    return scheduled_days
+
+
 @router.get("", response_model=list[FlashcardOut])
 async def list_flashcards(
     document_id: int | None = None,
@@ -52,6 +96,56 @@ async def list_flashcards(
         stmt = stmt.where(Flashcard.concept_id == concept_id)
     result = await session.execute(stmt)
     return [FlashcardOut.model_validate(card) for card in result.scalars().all()]
+
+
+@router.get("/due", response_model=list[FlashcardOut])
+async def list_due_flashcards(
+    session: AsyncSession = Depends(get_session),
+) -> list[FlashcardOut]:
+    """List new cards and review cards due now."""
+    now = utcnow_naive()
+    result = await session.execute(
+        select(Flashcard)
+        .where(Flashcard.due_date <= now)
+        .order_by(Flashcard.due_date, Flashcard.id)
+    )
+    return [FlashcardOut.model_validate(card) for card in result.scalars().all()]
+
+
+@router.post("/{flashcard_id}/review", response_model=FlashcardReviewOut)
+async def review_flashcard(
+    flashcard_id: int,
+    body: FlashcardReviewRequest,
+    session: AsyncSession = Depends(get_session),
+) -> FlashcardReviewOut:
+    """Rate a due flashcard and record the scheduling event."""
+    card = await session.get(Flashcard, flashcard_id)
+    if card is None:
+        raise HTTPException(status_code=404, detail="闪卡不存在")
+
+    now = utcnow_naive()
+    previous_last_review = card.last_review
+    elapsed_days = 0
+    if previous_last_review is not None:
+        elapsed_days = max(0, (now.date() - previous_last_review.date()).days)
+
+    scheduled_days = _schedule_review(card, body.rating, now)
+    session.add(
+        ReviewLog(
+            flashcard_id=card.id,
+            rating=body.rating.value,
+            reviewed_at=now,
+            elapsed_days=elapsed_days,
+            scheduled_days=scheduled_days,
+            stability=card.stability,
+            difficulty=card.difficulty,
+        )
+    )
+    await session.commit()
+
+    payload = FlashcardOut.model_validate(card).model_dump()
+    payload["scheduled_days"] = scheduled_days
+    return FlashcardReviewOut.model_validate(payload)
 
 
 @router.post(
