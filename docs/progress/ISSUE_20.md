@@ -1,6 +1,51 @@
-STATUS: IN PROGRESS
+STATUS: COMPLETE
 
 # Issue #20 - Flashcards from concepts and wrong answers
+
+## 2026-06-24 Ralph iteration 4
+
+Completed the final #20 behavior increment for non-MCQ wrong-answer
+flashcards: fill-blank and short-answer responses now have public API coverage
+showing that a wrong response creates an elevated, source-linked card, and a
+later corrected response removes the stale wrong-answer card from the flashcard
+list.
+
+## What changed
+
+- Added a parameterized public API test for fill-blank and short-answer
+  correction behavior through `POST /api/quiz-sessions/{id}/answer` and
+  `GET /api/flashcards`.
+- Kept the test at the public route boundary with mocked LLM responses.
+- Updated the answer route so a corrected source `Answer` deletes its existing
+  `origin=wrong_answer` flashcard instead of leaving stale review material.
+
+## Verification
+
+- RED: `uv run pytest backend/tests/test_flashcards_api.py -q`
+  - Failed as expected: corrected fill-blank and short-answer responses still
+    returned the old wrong-answer card from `GET /api/flashcards`.
+- GREEN: `uv run pytest backend/tests/test_flashcards_api.py -q`
+  - `4 passed, 7 warnings`
+- Related: `uv run pytest backend/tests/test_answer_api.py backend/tests/test_flashcards_api.py -q`
+  - `25 passed, 7 warnings`
+- Full backend: `uv run pytest backend`
+  - `204 passed, 7 warnings`
+- Style note: `uv run ruff format --check ...` and `uv run ruff check ...`
+  could not run because `ruff` is not installed in the project environment
+  (`Failed to spawn: ruff`). New test lines were manually scanned for
+  `length > 100`.
+
+## Remaining acceptance items
+
+- None for #20. Concept cards, wrong-answer cards, elevated priority,
+  document/concept listing, and result-page flashcard display are covered.
+- FSRS scheduling, due-card review sessions, Anki export, and full management
+  flows remain out of scope for later dependent issues.
+
+## Blockers
+
+- None for #20. Existing project-level real LLM and production migration
+  blockers still apply.
 
 ## 2026-06-24 Ralph iteration 3
 

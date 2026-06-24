@@ -85,6 +85,20 @@ async def _create_wrong_answer_flashcard(
     )
 
 
+async def _remove_wrong_answer_flashcard(db: AsyncSession, answer: Answer) -> None:
+    """Remove a stale wrong-answer card after the source answer is corrected."""
+    existing = (
+        await db.execute(
+            select(Flashcard).where(
+                Flashcard.source_answer_id == answer.id,
+                Flashcard.origin == FlashcardOrigin.WRONG_ANSWER,
+            )
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        await db.delete(existing)
+
+
 @router.post("/{session_id}/answer", response_model=AnswerOut)
 async def submit_answer(
     session_id: int,
@@ -178,6 +192,8 @@ async def submit_answer(
 
     if _answer_should_create_flashcard(question, answer):
         await _create_wrong_answer_flashcard(db, question, answer)
+    else:
+        await _remove_wrong_answer_flashcard(db, answer)
 
     # 全部题目作答完毕 → 结算会话（选择题按 is_correct 计 1，简答题按 score 计分）
     rows = (

@@ -4,6 +4,8 @@ Public behavior: answering a question incorrectly creates a source-linked flashc
 that can be listed through the flashcard API. LLM calls are mocked through the app
 dependency override.
 """
+import pytest
+
 from quizcraft.models.document import Concept, Document, DocumentStatus, Section
 from quizcraft.models.quiz import Question, QuestionType, QuizSession, SessionStatus
 
@@ -72,6 +74,101 @@ async def _seed_concept_question(session):
     session.add(quiz)
     await session.commit()
     return doc.id, concept.id, quiz.id, question.id
+
+
+async def _seed_open_ended_flashcard_quiz(session, question_type: QuestionType):
+    """Seed one target fill/short-answer question plus one unanswered blocker.
+
+    Keeping a second question unanswered leaves the session open so the same
+    public answer endpoint can exercise answer correction behavior.
+    """
+    doc = Document(filename="lecture.pdf", page_count=1, status=DocumentStatus.COMPLETE)
+    session.add(doc)
+    await session.flush()
+
+    section = Section(
+        document_id=doc.id,
+        section_path="第2章 光合作用",
+        page_number=12,
+        content="光反应发生在类囊体膜上。",
+        order_index=0,
+        token_count=10,
+    )
+    session.add(section)
+    await session.flush()
+
+    concept = Concept(
+        document_id=doc.id,
+        section_id=section.id,
+        name="光反应",
+        description="光合作用中依赖光能的反应阶段",
+        source_span={
+            "page": 12,
+            "section_path": "第2章 光合作用",
+            "text": "光反应发生在类囊体膜上。",
+        },
+        bloom_level="理解",
+    )
+    session.add(concept)
+    await session.flush()
+
+    target = Question(
+        document_id=doc.id,
+        concept_id=concept.id,
+        section_id=section.id,
+        question_type=question_type,
+        stem=(
+            "光反应发生在____上。"
+            if question_type == QuestionType.FILL_BLANK
+            else "简述光反应的发生部位。"
+        ),
+        options=[],
+        correct_option_index=None,
+        answer_text=(
+            "类囊体膜"
+            if question_type == QuestionType.FILL_BLANK
+            else "光反应发生在类囊体膜上。"
+        ),
+        explanation="考察光反应部位。",
+        source_span={
+            "page": 12,
+            "section_path": "第2章 光合作用",
+            "text": "光反应发生在类囊体膜上。",
+        },
+        bloom_level="理解",
+        difficulty="medium",
+        self_eval_score=None,
+    )
+    blocker = Question(
+        document_id=doc.id,
+        concept_id=concept.id,
+        section_id=section.id,
+        question_type=QuestionType.MULTIPLE_CHOICE,
+        stem="保留会话未完成的题目",
+        options=["A", "B", "C", "D"],
+        correct_option_index=0,
+        explanation="占位题。",
+        source_span={
+            "page": 12,
+            "section_path": "第2章 光合作用",
+            "text": "光反应发生在类囊体膜上。",
+        },
+        bloom_level="记忆",
+        difficulty="easy",
+        self_eval_score=0.9,
+    )
+    session.add_all([target, blocker])
+    await session.flush()
+
+    quiz = QuizSession(
+        document_id=doc.id,
+        question_ids=[target.id, blocker.id],
+        status=SessionStatus.IN_PROGRESS,
+        total=2,
+    )
+    session.add(quiz)
+    await session.commit()
+    return doc.id, concept.id, quiz.id, target.id
 
 
 async def test_wrong_answer_creates_source_linked_flashcard(session, client, llm_mock):
@@ -148,3 +245,69 @@ async def test_create_concept_flashcards_without_duplicates(session, client):
     list_resp = await client.get(f"/api/flashcards?document_id={document_id}")
     assert list_resp.status_code == 200, list_resp.text
     assert [item["id"] for item in list_resp.json()] == [card["id"]]
+
+
+@pytest.mark.parametrize(
+    ("question_type", "wrong_text", "wrong_llm", "correct_text", "correct_llm"),
+    [
+        (QuestionType.FILL_BLANK, "细胞核", FEEDBACK, "类囊体膜", FEEDBACK),
+        (
+            QuestionType.SHORT_ANSWER,
+            "在细胞核里",
+            '{"score": 0.4, "feedback": "还没答到课件第12页的类囊体膜。"}',
+            "光反应发生在类囊体膜上。",
+            (
+                '{"score": 1, "feedback": '
+                '"答对了，课件第12页说明光反应发生在类囊体膜上。"}'
+            ),
+        ),
+    ],
+)
+async def test_corrected_open_ended_answer_removes_wrong_answer_flashcard(
+    session,
+    client,
+    llm_mock,
+    question_type,
+    wrong_text,
+    wrong_llm,
+    correct_text,
+    correct_llm,
+):
+    """Correcting a fill/short-answer response removes its stale wrong-answer card."""
+    document_id, concept_id, quiz_id, question_id = await _seed_open_ended_flashcard_quiz(
+        session, question_type
+    )
+    llm_mock.set_responses([wrong_llm, correct_llm])
+
+    wrong_resp = await client.post(
+        f"/api/quiz-sessions/{quiz_id}/answer",
+        json={"question_id": question_id, "short_answer_text": wrong_text},
+    )
+    assert wrong_resp.status_code == 200, wrong_resp.text
+
+    wrong_cards_resp = await client.get(f"/api/flashcards?document_id={document_id}")
+    assert wrong_cards_resp.status_code == 200, wrong_cards_resp.text
+    wrong_cards = wrong_cards_resp.json()
+    assert len(wrong_cards) == 1
+    card = wrong_cards[0]
+    assert card["concept_id"] == concept_id
+    assert card["origin"] == "wrong_answer"
+    assert card["priority"] == "elevated"
+    assert card["source_question_id"] == question_id
+    assert card["source_answer_id"] == wrong_resp.json()["id"]
+    assert "类囊体膜" in card["back"]
+    assert card["source_span"] == {
+        "page": 12,
+        "section_path": "第2章 光合作用",
+        "text": "光反应发生在类囊体膜上。",
+    }
+
+    correct_resp = await client.post(
+        f"/api/quiz-sessions/{quiz_id}/answer",
+        json={"question_id": question_id, "short_answer_text": correct_text},
+    )
+    assert correct_resp.status_code == 200, correct_resp.text
+
+    corrected_cards_resp = await client.get(f"/api/flashcards?document_id={document_id}")
+    assert corrected_cards_resp.status_code == 200, corrected_cards_resp.text
+    assert corrected_cards_resp.json() == []
