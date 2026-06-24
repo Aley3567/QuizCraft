@@ -115,7 +115,12 @@ export default function Page() {
       )}
 
       {stage === "done" && quiz && (
-        <ResultView questions={quiz.questions} answers={answers} onRestart={reset} />
+        <ResultView
+          documentId={quiz.quiz_session.document_id}
+          questions={quiz.questions}
+          answers={answers}
+          onRestart={reset}
+        />
       )}
     </main>
   );

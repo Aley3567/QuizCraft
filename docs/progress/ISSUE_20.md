@@ -2,6 +2,57 @@ STATUS: IN PROGRESS
 
 # Issue #20 - Flashcards from concepts and wrong answers
 
+## 2026-06-24 Ralph iteration 3
+
+Completed the next visible behavior increment for the flashcard list UI:
+after a quiz is finished, the result page reads `GET /api/flashcards` for the
+current document and displays source-linked concept cards and wrong-answer cards.
+
+## What changed
+
+- Added the frontend `FlashcardOut` type matching the backend public schema.
+- Added `listFlashcards({ documentId, conceptId })` to the frontend API client.
+- Added `FlashcardList`, a compact document-scoped list that shows card origin,
+  priority, front/back, and source citation.
+- Rendered the flashcard list on the quiz result page using the quiz session's
+  `document_id`.
+- Kept FSRS review, card editing, and management flows out of this increment.
+
+## Verification
+
+- RED: `cd frontend && npm run test`
+  - Failed as expected with `listFlashcards is not a function`.
+- GREEN: `cd frontend && npm run test`
+  - `34 passed`
+- Frontend typecheck: `cd frontend && npm run typecheck`
+  - Passed
+- Backend related: `uv run pytest backend/tests/test_flashcards_api.py -q`
+  - `2 passed, 7 warnings`
+- Backend related: `uv run pytest backend/tests/test_answer_api.py backend/tests/test_flashcards_api.py -q`
+  - `23 passed, 7 warnings`
+- Full frontend build: `cd frontend && npm run build`
+  - Passed
+- Full backend: `uv run pytest backend`
+  - `202 passed, 7 warnings`
+- Diff hygiene: `git diff --check`
+  - Passed
+- Local render smoke: `curl -sS -D - http://localhost:3000/`
+  - Returned `HTTP/1.1 200 OK` and rendered the QuizCraft shell.
+  - Browser screenshot was not captured because the in-app browser and local
+    Playwright package were unavailable in this session.
+
+## Remaining acceptance items
+
+- Wrong-answer flashcards for short-answer/fill-blank still need explicit
+  public API behavior coverage beyond the current generic creation path.
+- FSRS scheduling, due-card review sessions, Anki export, and full management
+  flows remain out of scope for #20 or later dependent issues.
+
+## Blockers
+
+- None for the next local increment. Existing project-level real LLM and
+  production migration blockers still apply.
+
 ## 2026-06-24 Ralph iteration 2
 
 Completed the next behavior increment for concept-based flashcards:

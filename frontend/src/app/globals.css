@@ -206,6 +206,32 @@ button {
   margin: 0 0 12px;
 }
 
+.flashcards h3 {
+  margin: 0 0 12px;
+}
+
+.flashcard-list {
+  display: grid;
+  gap: 12px;
+}
+
+.flashcard-item {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px;
+  background: #fff;
+}
+
+.flashcard-item h4 {
+  margin: 0 0 8px;
+  font-size: 16px;
+}
+
+.flashcard-item p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
 .muted {
   color: var(--muted);
 }

@@ -8,6 +8,7 @@ import type {
   AnswerOut,
   DocumentDetail,
   DraftQuizGenerationRequest,
+  FlashcardOut,
   LlmConfigOut,
   LlmConfigRequest,
   LlmConfigSaveResponse,
@@ -162,6 +163,24 @@ export async function publishQuestion(questionId: number): Promise<QuestionOut> 
   });
   if (!resp.ok) throw await asApiError(resp);
   return (await resp.json()) as QuestionOut;
+}
+
+/** 读取闪卡列表：答题结束后按文档展示概念卡和错题卡。 */
+export async function listFlashcards({
+  documentId,
+  conceptId,
+}: {
+  documentId?: number;
+  conceptId?: number;
+}): Promise<FlashcardOut[]> {
+  const params = new URLSearchParams();
+  if (documentId != null) params.set("document_id", String(documentId));
+  if (conceptId != null) params.set("concept_id", String(conceptId));
+  const query = params.toString();
+  const url = `${apiBaseUrl()}/api/flashcards${query ? `?${query}` : ""}`;
+  const resp = await fetch(url, { method: "GET" });
+  if (!resp.ok) throw await asApiError(resp);
+  return (await resp.json()) as FlashcardOut[];
 }
 
 /** 构造答题请求体（与后端 AnswerRequest 对齐）。 */

@@ -6,6 +6,7 @@ import {
   deleteQuestion,
   generateDraftQuiz,
   getLlmSettings,
+  listFlashcards,
   listDraftQuestions,
   parseApiError,
   publishQuestion,
@@ -322,6 +323,47 @@ describe("answer API", () => {
       },
     );
     expect(result.short_answer_text).toBe("类囊体膜");
+  });
+});
+
+describe("flashcard API", () => {
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("按文档读取闪卡列表用于答题后复习入口", async () => {
+    const fetchMock = vi.mocked(fetch);
+    const cards = [
+      {
+        id: 9,
+        document_id: 5,
+        concept_id: 2,
+        source_answer_id: 3,
+        source_question_id: 7,
+        front: "光反应发生在哪里？",
+        back: "正确答案：类囊体膜\n来源：光反应发生在类囊体膜上。",
+        source_span: {
+          page: 12,
+          section_path: "第2章 光合作用",
+          text: "光反应发生在类囊体膜上。",
+        },
+        origin: "wrong_answer",
+        priority: "elevated",
+        state: "new",
+        created_at: null,
+      },
+    ];
+    fetchMock.mockResolvedValueOnce(jsonResponse(cards));
+
+    await expect(listFlashcards({ documentId: 5 })).resolves.toEqual(cards);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:8000/api/flashcards?document_id=5",
+      { method: "GET" },
+    );
   });
 });
 

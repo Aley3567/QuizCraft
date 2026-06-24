@@ -9,10 +9,10 @@
 
 - 当前队列：GitHub TDD issues #16-#38；旧功能桶 issues #5-#15 已 superseded。
 - 本轮推进：#20 `[TDD 2A] Flashcards from concepts and wrong answers`
-  新增 `POST /api/flashcards/from-concepts`，可从 extracted concepts
-  幂等生成 source-linked normal flashcards；错题卡和列表 API 继续可用。
+  新增前端闪卡列表入口，答题结束页会按当前 document 读取并展示 source-linked
+  concept/wrong-answer flashcards。
 - 当前可领取：#20 仍 `IN PROGRESS`；本轮未修改 GitHub issue/label/PR。
-- 下一步：继续 #20 的下一个最小行为增量：补错题类型覆盖，或进入 flashcard list UI。
+- 下一步：继续 #20 的下一个最小行为增量：补短答/填空错题生成闪卡的 public API 覆盖。
 - 监控节奏：Codex heartbeat 每 20 分钟检查一次；同一 worktree 只允许一个 Ralph runner 写代码。
 
 ## 切片完成情况
@@ -25,7 +25,7 @@
 | #17 Quiz generation controls UI | COMPLETE | docs/progress/ISSUE_17.md | 前端 generation controls + 参数请求行为完成 |
 | #18 Mixed question answering loop | COMPLETE | docs/progress/ISSUE_18.md | 前端混合题型答题和结果汇总完成 |
 | #19 LLM settings UI/runtime smoke | COMPLETE | docs/progress/ISSUE_19.md | Settings UI + runtime smoke 验证完成 |
-| #20 Flashcards from concepts and wrong answers | IN PROGRESS | docs/progress/ISSUE_20.md | 错题 source-linked elevated flashcard + 概念闪卡幂等创建 + 列表 API 完成；错题类型覆盖/UI 待后续 |
+| #20 Flashcards from concepts and wrong answers | IN PROGRESS | docs/progress/ISSUE_20.md | 错题 source-linked elevated flashcard + 概念闪卡幂等创建 + 列表 API + 结果页闪卡列表完成；短答/填空错题覆盖待后续 |
 | #21-#38 | 未开始/阻塞 | docs/progress/ISSUE_<n>.md | 依赖前序 TDD issue |
 
 ## 已完成总览
@@ -120,6 +120,10 @@
   带 `source_span` 的概念闪卡；重复请求返回已有卡，不重复插入。
 - 验证：概念闪卡 API 测试红灯为 404；实现后 `backend/tests/test_flashcards_api.py` 2 绿；相关答题+闪卡 23 绿；
   后端全量 202 绿；`git diff --check` 通过。
+- 前端新增 `listFlashcards({ documentId, conceptId })` API client 和 `FlashcardList`，答题完成页按
+  `quiz_session.document_id` 展示闪卡来源、优先级、正反面与 source_span 引用。
+- 验证：前端 API 测试红灯为 `listFlashcards is not a function`；实现后前端 34 测、typecheck、build 通过；
+  后端相关 23 测、后端全量 202 测通过；本地 `curl http://localhost:3000/` 返回 200。
 
 ## Blockers（跨切片，待 yufeng 外部资源）
 

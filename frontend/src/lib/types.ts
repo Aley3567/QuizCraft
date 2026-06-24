@@ -113,6 +113,21 @@ export interface LlmConfigSaveResponse {
   connection: ConnectionResultOut;
 }
 
+export interface FlashcardOut {
+  id: number;
+  document_id: number;
+  concept_id: number | null;
+  source_answer_id: number | null;
+  source_question_id: number | null;
+  front: string;
+  back: string;
+  source_span: SourceSpan;
+  origin: "concept" | "wrong_answer";
+  priority: "normal" | "elevated";
+  state: string;
+  created_at: string | null;
+}
+
 export interface AnswerOut {
   id: number;
   quiz_session_id: number;

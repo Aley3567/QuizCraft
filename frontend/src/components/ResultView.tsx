@@ -1,15 +1,18 @@
 "use client";
 
+import { FlashcardList } from "@/components/FlashcardList";
 import { computeScore, formatSourceSpan, sourceExcerpt, wrongQuestions } from "@/lib/quiz-state";
 import type { AnswerMap } from "@/lib/quiz-state";
 import type { QuestionOut } from "@/lib/types";
 
 /** 答题结束：总分 + 错题列表（每题引用文档原文/页码）。 */
 export function ResultView({
+  documentId,
   questions,
   answers,
   onRestart,
 }: {
+  documentId: number;
   questions: QuestionOut[];
   answers: AnswerMap;
   onRestart: () => void;
@@ -68,6 +71,8 @@ export function ResultView({
           <p>全部答对，没有错题。</p>
         </div>
       )}
+
+      <FlashcardList documentId={documentId} />
 
       <div className="card" style={{ display: "flex", gap: 12 }}>
         <button className="btn" onClick={onRestart}>
