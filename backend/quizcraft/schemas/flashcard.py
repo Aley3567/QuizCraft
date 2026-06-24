@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from quizcraft.models.flashcard import FlashcardOrigin, FlashcardPriority
 
@@ -25,3 +25,9 @@ class FlashcardOut(BaseModel):
     priority: FlashcardPriority
     state: str
     created_at: datetime | None = None
+
+
+class ConceptFlashcardCreate(BaseModel):
+    """Request to create source-linked cards from extracted concepts."""
+
+    concept_ids: list[int] = Field(min_length=1)

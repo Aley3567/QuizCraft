@@ -108,3 +108,43 @@ async def test_wrong_answer_creates_source_linked_flashcard(session, client, llm
     filtered = await client.get(f"/api/flashcards?concept_id={concept_id}")
     assert filtered.status_code == 200, filtered.text
     assert [card["id"] for card in filtered.json()] == [card["id"]]
+
+
+async def test_create_concept_flashcards_without_duplicates(session, client):
+    """Concept card creation is idempotent and keeps source citation metadata."""
+    document_id, concept_id, _quiz_id, _question_id = await _seed_concept_question(session)
+
+    first_resp = await client.post(
+        "/api/flashcards/from-concepts",
+        json={"concept_ids": [concept_id]},
+    )
+
+    assert first_resp.status_code == 201, first_resp.text
+    first_cards = first_resp.json()
+    assert len(first_cards) == 1
+    card = first_cards[0]
+    assert card["document_id"] == document_id
+    assert card["concept_id"] == concept_id
+    assert card["source_answer_id"] is None
+    assert card["source_question_id"] is None
+    assert card["origin"] == "concept"
+    assert card["priority"] == "normal"
+    assert card["front"] == "什么是光反应？"
+    assert "光合作用中依赖光能的反应阶段" in card["back"]
+    assert card["source_span"] == {
+        "page": 12,
+        "section_path": "第2章 光合作用",
+        "text": "光反应发生在类囊体膜上。",
+    }
+
+    second_resp = await client.post(
+        "/api/flashcards/from-concepts",
+        json={"concept_ids": [concept_id]},
+    )
+
+    assert second_resp.status_code == 201, second_resp.text
+    assert [item["id"] for item in second_resp.json()] == [card["id"]]
+
+    list_resp = await client.get(f"/api/flashcards?document_id={document_id}")
+    assert list_resp.status_code == 200, list_resp.text
+    assert [item["id"] for item in list_resp.json()] == [card["id"]]
