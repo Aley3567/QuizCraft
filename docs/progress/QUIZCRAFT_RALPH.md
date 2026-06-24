@@ -7,16 +7,16 @@
 
 **STATUS: IN PROGRESS**
 
-- 当前切片：**Phase 1 切片 1.2（LLM 配置与出题增强）** —— 下一轮开始
-- 上一轮完成：切片 1.1 子系统 6（端到端集成测试），切片 1.1 STATUS: COMPLETE
-- 下一步：切片 1.2 第一个子系统「LLM 配置 UI 与后端」（Settings 页 + provider/key/model/base_url 存 SQLite settings 表 + POST /api/settings/llm + 测试调用连通验证）
+- 当前切片：**Phase 1 切片 1.2（LLM 配置与出题增强）** —— 子系统 1 后端核心完成，进行中
+- 上一轮完成：切片 1.2 子系统 1 后端（LLM 配置加密存储 + GET/POST /api/settings/llm + 连通测试），新增 29 测（累计 100）
+- 下一步：切片 1.2 子系统 1 前端 Settings 页（打通"配置→测试"UI），或子系统 2 出题参数控制后端
 
 ## 切片完成情况
 
 | 切片 | 状态 | progress 文件 | 备注 |
 |------|------|---------------|------|
 | 1.1 最小出题闭环 | COMPLETE | docs/progress/SLICE_1_1.md | 6 子系统全完成，后端 71 测 + 前端 21 测绿；真实 LLM/真实 PDF fixture 待 yufeng |
-| 1.2 LLM 配置与出题增强 | 未开始 | — | 依赖 1.1（已满足） |
+| 1.2 LLM 配置与出题增强 | IN PROGRESS | docs/progress/SLICE_1_2.md | 子系统 1 后端完成（加密存储+API+连通测试，29 新测）；前端 + 子系统 2-6 待 |
 | 1.3 闪卡与 FSRS | 未开始 | — | 依赖 1.1+1.2 |
 | 1.4 DOCX 与分层解析 | 未开始 | — | 依赖 1.1+1.2 |
 | 1.5 自部署与离线 | 未开始 | — | 依赖 1.1-1.4 |
@@ -34,6 +34,12 @@
 4. 答题反馈：POST /api/quiz-sessions/{id}/answer + 确定性判分 + LLM 引用原文反馈（空响应兜底）+ 会话结算
 5. 前端：Next.js 15 App Router + 上传/答题/错题反馈单页 + CORS + lifespan 建表（真机冒烟发现的 bug 修复）
 6. 端到端集成测试：上传→出题→答题→反馈全链路（source_span 从真实解析贯穿到用户可见反馈，双路径：LLM 有响应 / LLM 空兜底）
+
+### 切片 1.2 子系统 1（轮次 1）
+
+- LLM 配置后端核心：API key Fernet 加密（cryptography，secret 从 QUIZCRAFT_SECRET_KEY 派生）+ KV settings 表 +
+  GET/POST /api/settings/llm（脱敏读 + 加密写 + 立即连通测试）。真机冒烟发现 check_llm_connection 构造期
+  ImportError 逃逸 → 500（SOCKS 代理环境），修复为 except Exception 全捕获降级 ok=False。
 
 ## Blockers（跨切片，待 yufeng 外部资源）
 

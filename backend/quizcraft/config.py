@@ -36,6 +36,11 @@ class Settings(BaseSettings):
     #   QUIZCRAFT_CORS_ORIGINS='["http://localhost:3000","https://quiz.example"]'
     cors_origins: list[str] = ["http://localhost:3000"]
 
+    # 对称加密 secret：API key 加密用，从 QUIZCRAFT_SECRET_KEY 读取（SHA-256 派生 Fernet key）。
+    # 未配置时：保存含 api_key 的 LLM 配置会被拒绝（不 fallback 弱密钥，避免明文落库敏感凭证）；
+    # mock provider 等无 api_key 的配置仍可保存。自部署务必配置。
+    secret_key: str | None = None
+
 
 def get_settings() -> Settings:
     """读取当前环境配置（每次调用读最新环境变量）。"""

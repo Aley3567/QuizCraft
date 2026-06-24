@@ -10,7 +10,12 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from quizcraft import __version__
 from quizcraft.config import get_settings
 from quizcraft.db import Base
-from quizcraft.routers import documents_router, quiz_router, quiz_sessions_router
+from quizcraft.routers import (
+    documents_router,
+    quiz_router,
+    quiz_sessions_router,
+    settings_router,
+)
 
 import quizcraft.models  # noqa: F401  注册 ORM 模型到 Base.metadata，供 create_all 建表
 
@@ -56,6 +61,7 @@ app.add_middleware(
 app.include_router(documents_router)
 app.include_router(quiz_router)
 app.include_router(quiz_sessions_router)
+app.include_router(settings_router)
 
 
 @app.get("/health")
