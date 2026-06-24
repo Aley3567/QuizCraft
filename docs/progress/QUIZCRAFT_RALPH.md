@@ -9,10 +9,10 @@
 
 - 当前队列：GitHub TDD issues #16-#38；旧功能桶 issues #5-#15 已 superseded。
 - 本轮推进：#21 `[TDD 2B] FSRS due-card review session`
-  完成第一段后端 public API 增量：新闪卡进入 due 列表，Good review 更新调度并写入 ReviewLog。
+  完成第二段前端 review UI 增量：主页面可打开到期闪卡 session，翻看背面，提交
+  Again/Hard/Good/Easy，并显示后端返回的下一次复习间隔。
 - 当前可领取：#21 本地进度为 `IN PROGRESS`；本轮未修改 GitHub issue/label/PR。
-- 下一步：继续 #21 的下一个最小增量，优先补 Again/Hard/Easy review 行为覆盖或前端
-  show-front/reveal-back/rate-card flow。
+- 下一步：继续 #21 的下一个最小增量，优先补 Again/Hard/Easy backend public API 行为覆盖。
 - 监控节奏：Codex heartbeat 每 20 分钟检查一次；同一 worktree 只允许一个 Ralph runner 写代码。
 
 ## 切片完成情况
@@ -26,7 +26,7 @@
 | #18 Mixed question answering loop | COMPLETE | docs/progress/ISSUE_18.md | 前端混合题型答题和结果汇总完成 |
 | #19 LLM settings UI/runtime smoke | COMPLETE | docs/progress/ISSUE_19.md | Settings UI + runtime smoke 验证完成 |
 | #20 Flashcards from concepts and wrong answers | COMPLETE | docs/progress/ISSUE_20.md | 错题 source-linked elevated flashcard + 概念闪卡幂等创建 + 列表 API + 结果页闪卡列表 + 短答/填空错题更正清理完成 |
-| #21 FSRS due-card review session | IN PROGRESS | docs/progress/ISSUE_21.md | 后端 due list + Good review + ReviewLog 首增量完成；剩余 rating 覆盖与 review UI |
+| #21 FSRS due-card review session | IN PROGRESS | docs/progress/ISSUE_21.md | 后端 due list + Good review + ReviewLog 完成；前端翻卡评分 flow 完成；剩余 Again/Hard/Easy 后端显式覆盖 |
 | #22-#38 | 未开始/阻塞 | docs/progress/ISSUE_<n>.md | 依赖前序 TDD issue |
 
 ## 已完成总览
@@ -142,7 +142,13 @@
   reps=1、lapses=0，并从 due 列表移除。
 - 验证：新增测试红灯为 `ReviewLog` 不存在；实现后 `backend/tests/test_flashcards_api.py` 5 绿、
   答题+闪卡相关 26 绿、后端全量 205 绿；`git diff --check` 通过。
-- 剩余：Again/Hard/Easy 显式覆盖、翻卡评分前端 UI、是否引入真实 py-fsrs 依赖的后续收敛。
+- 前端新增 `listDueFlashcards` / `reviewFlashcard` API client、FSRS 调度字段类型和
+  `FlashcardReview`。主页面在非答题状态展示到期闪卡 session，支持显示背面、来源引用、
+  Again/Hard/Good/Easy 评分和下一次复习间隔反馈。
+- 验证：API 测试红灯为 `listDueFlashcards is not a function`；实现后前端 35 测、
+  typecheck、build 通过；后端全量 205 测通过；Chrome headless 桌面 1280x900 与移动 390x844
+  渲染无水平溢出，桌面翻面与 Good 评分流程可用。
+- 剩余：Again/Hard/Easy 后端 public API 显式覆盖、是否引入真实 py-fsrs 依赖的后续收敛。
 
 ## Blockers（跨切片，待 yufeng 外部资源）
 

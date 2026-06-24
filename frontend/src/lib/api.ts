@@ -9,6 +9,7 @@ import type {
   DocumentDetail,
   DraftQuizGenerationRequest,
   FlashcardOut,
+  FlashcardReviewOut,
   LlmConfigOut,
   LlmConfigRequest,
   LlmConfigSaveResponse,
@@ -181,6 +182,27 @@ export async function listFlashcards({
   const resp = await fetch(url, { method: "GET" });
   if (!resp.ok) throw await asApiError(resp);
   return (await resp.json()) as FlashcardOut[];
+}
+
+/** 读取当前到期闪卡，供每日复习 session 使用。 */
+export async function listDueFlashcards(): Promise<FlashcardOut[]> {
+  const resp = await fetch(`${apiBaseUrl()}/api/flashcards/due`, { method: "GET" });
+  if (!resp.ok) throw await asApiError(resp);
+  return (await resp.json()) as FlashcardOut[];
+}
+
+/** 提交闪卡复习评分，后端返回更新后的 FSRS 状态和本次间隔天数。 */
+export async function reviewFlashcard(
+  flashcardId: number,
+  rating: "again" | "hard" | "good" | "easy",
+): Promise<FlashcardReviewOut> {
+  const resp = await fetch(`${apiBaseUrl()}/api/flashcards/${flashcardId}/review`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ rating }),
+  });
+  if (!resp.ok) throw await asApiError(resp);
+  return (await resp.json()) as FlashcardReviewOut;
 }
 
 /** 构造答题请求体（与后端 AnswerRequest 对齐）。 */

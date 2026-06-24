@@ -7,9 +7,11 @@ import {
   generateDraftQuiz,
   getLlmSettings,
   listFlashcards,
+  listDueFlashcards,
   listDraftQuestions,
   parseApiError,
   publishQuestion,
+  reviewFlashcard,
   saveLlmSettings,
   submitAnswer,
   updateQuestion,
@@ -364,6 +366,68 @@ describe("flashcard API", () => {
       "http://localhost:8000/api/flashcards?document_id=5",
       { method: "GET" },
     );
+  });
+
+  it("读取到期闪卡并提交 Good 评分", async () => {
+    const fetchMock = vi.mocked(fetch);
+    const card = {
+      id: 9,
+      document_id: 5,
+      concept_id: 2,
+      source_answer_id: null,
+      source_question_id: null,
+      front: "什么是光反应？",
+      back: "光合作用中依赖光能的反应阶段",
+      source_span: {
+        page: 12,
+        section_path: "第2章 光合作用",
+        text: "光反应发生在类囊体膜上。",
+      },
+      origin: "concept",
+      priority: "normal",
+      state: "new",
+      stability: 0,
+      difficulty: 5,
+      due_date: "2026-06-24T00:00:00",
+      last_review: null,
+      reps: 0,
+      lapses: 0,
+      created_at: null,
+    };
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse([card]))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          ...card,
+          state: "review",
+          stability: 2.5,
+          difficulty: 4.8,
+          due_date: "2026-06-25T00:00:00",
+          last_review: "2026-06-24T00:00:00",
+          reps: 1,
+          scheduled_days: 1,
+        }),
+      );
+
+    await expect(listDueFlashcards()).resolves.toEqual([card]);
+    const reviewed = await reviewFlashcard(9, "good");
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "http://localhost:8000/api/flashcards/due",
+      { method: "GET" },
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "http://localhost:8000/api/flashcards/9/review",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ rating: "good" }),
+      },
+    );
+    expect(reviewed.scheduled_days).toBe(1);
+    expect(reviewed.state).toBe("review");
   });
 });
 

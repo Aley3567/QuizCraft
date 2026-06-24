@@ -5,6 +5,7 @@ import { generateDraftQuiz } from "@/lib/api";
 import { Uploader } from "@/components/Uploader";
 import { DocumentSummary } from "@/components/DocumentSummary";
 import { DraftReview } from "@/components/DraftReview";
+import { FlashcardReview } from "@/components/FlashcardReview";
 import { GenerationControls } from "@/components/GenerationControls";
 import { QuizPlayer } from "@/components/QuizPlayer";
 import { ResultView } from "@/components/ResultView";
@@ -63,6 +64,7 @@ export default function Page() {
       {error && <p className="feedback err">{error}</p>}
 
       <SettingsPanel />
+      {stage !== "quizzing" && <FlashcardReview />}
 
       {stage === "idle" && (
         <Uploader

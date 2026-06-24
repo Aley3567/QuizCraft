@@ -125,7 +125,17 @@ export interface FlashcardOut {
   origin: "concept" | "wrong_answer";
   priority: "normal" | "elevated";
   state: string;
+  stability: number;
+  difficulty: number;
+  due_date: string;
+  last_review: string | null;
+  reps: number;
+  lapses: number;
   created_at: string | null;
+}
+
+export interface FlashcardReviewOut extends FlashcardOut {
+  scheduled_days: number;
 }
 
 export interface AnswerOut {
