@@ -22,6 +22,7 @@ from quizcraft.schemas.settings import (
 from quizcraft.services.settings import (
     LLMConfig,
     check_llm_connection,
+    load_llm_config,
     load_llm_config_view,
     save_llm_config,
 )
@@ -47,10 +48,18 @@ async def save_llm_settings(
 ) -> LLMConfigSaveResponse:
     """保存 LLM 配置（api_key 加密落库）并测试连通，返回脱敏视图 + 连通结果。"""
     secret = get_settings().secret_key or ""
+    api_key = body.api_key
+    if "api_key" not in body.model_fields_set:
+        try:
+            existing = await load_llm_config(session, secret)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if existing is not None:
+            api_key = existing.api_key
 
     config = LLMConfig(
         provider=body.provider,
-        api_key=body.api_key,
+        api_key=api_key,
         model=body.model,
         base_url=body.base_url,
     )
@@ -64,7 +73,7 @@ async def save_llm_settings(
     # 再连通测试：用提交的明文配置探测（mock 无需外部连接；openai 真实调用，失败仅报告不阻断）
     connection = await check_llm_connection(
         provider=body.provider,
-        api_key=body.api_key,
+        api_key=api_key,
         model=body.model,
         base_url=body.base_url,
     )

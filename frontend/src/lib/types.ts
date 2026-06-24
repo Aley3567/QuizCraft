@@ -87,6 +87,32 @@ export interface QuizGenerationRequest {
 
 export type DraftQuizGenerationRequest = Omit<QuizGenerationRequest, "auto_publish">;
 
+export interface LlmConfigRequest {
+  provider: string;
+  api_key?: string;
+  model?: string;
+  base_url?: string;
+}
+
+export interface LlmConfigOut {
+  provider: string;
+  has_api_key: boolean;
+  model: string | null;
+  base_url: string | null;
+}
+
+export interface ConnectionResultOut {
+  ok: boolean;
+  provider: string;
+  model: string | null;
+  message: string;
+}
+
+export interface LlmConfigSaveResponse {
+  config: LlmConfigOut;
+  connection: ConnectionResultOut;
+}
+
 export interface AnswerOut {
   id: number;
   quiz_session_id: number;

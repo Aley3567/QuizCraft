@@ -8,11 +8,10 @@
 **STATUS: IN PROGRESS**
 
 - 当前队列：GitHub TDD issues #16-#38；旧功能桶 issues #5-#15 已 superseded。
-- 本轮完成：#18 `[TDD 1D] Mixed question answering loop`
-  前端填空/简答答题输入 + 文本答案提交 + 混合题型部分分结果汇总。
-- 当前可领取：#19（`ready-for-agent,type:slice`；需下轮 monitor 刷新 queue，让 #18 按本地 progress 标记 complete）。
-- 下一步：刷新 Ralph queue 后领取最小编号 claimable issue，预计 #19
-  `[TDD 1E] LLM settings UI and runtime smoke`。
+- 本轮完成：#19 `[TDD 1E] LLM settings UI and runtime smoke`
+  前端 LLM Settings 面板 + settings API client + 非致命连接失败显示 + 省略 key 保留已有密钥。
+- 当前可领取：待 monitor 重新生成 `.codex-loop/queue.*` 后判定；本轮未修改 GitHub issue/label/PR。
+- 下一步：刷新 Ralph queue；只领取 queue 标记 `claimable_now=true` 的最小编号 GitHub issue。
 - 监控节奏：Codex heartbeat 每 20 分钟检查一次；同一 worktree 只允许一个 Ralph runner 写代码。
 
 ## 切片完成情况
@@ -24,7 +23,7 @@
 | #16 Draft question review loop | COMPLETE | docs/progress/ISSUE_16.md | 前端草稿审核流 + 后端 draft APIs 验证完成 |
 | #17 Quiz generation controls UI | COMPLETE | docs/progress/ISSUE_17.md | 前端 generation controls + 参数请求行为完成 |
 | #18 Mixed question answering loop | COMPLETE | docs/progress/ISSUE_18.md | 前端混合题型答题和结果汇总完成 |
-| #19 LLM settings UI/runtime smoke | 未开始 | docs/progress/ISSUE_19.md | claimable |
+| #19 LLM settings UI/runtime smoke | COMPLETE | docs/progress/ISSUE_19.md | Settings UI + runtime smoke 验证完成 |
 | #20-#38 | 未开始/阻塞 | docs/progress/ISSUE_<n>.md | 依赖前序 TDD issue |
 
 ## 已完成总览
@@ -95,6 +94,17 @@
 - 探针验证 FastAPI 0.138.0 sync-value override 对 async-gen 依赖有效 → 现有 `llm_mock` fixture 零破坏。
 - 路由集成测试覆盖真实 async-gen get_llm_client 经 Depends 解析（现有测试全 override，改签名后必须有
   路由级测试证明接线未坏，同「ASGITransport 掩盖真机」教训）。8 新测累计 174 全绿。
+
+### TDD Issue #19（LLM settings UI/runtime smoke）
+
+- 前端新增 `SettingsPanel`，在 QuizCraft 单页顶部提供 provider、model、API key、base URL 表单；
+  保存后显示脱敏配置摘要（`has_api_key`）和连接检查结果。
+- 前端 settings API client 覆盖 `GET /api/settings/llm` 与 `POST /api/settings/llm`，测试断言调用方不接收明文
+  `api_key`，失败连接作为 `connection.ok=false` 数据返回。
+- 后端 `POST /api/settings/llm` 修正省略 `api_key` 的语义：已有 key 不回显时，保存 model/base_url 不会意外清空
+  已存密钥；显式传 null/空值仍可清空。
+- 验证：前端 33 测、typecheck、build 通过；后端 200 测通过；Chrome headless 桌面/移动渲染无水平溢出，openai 无 key
+  显示非致命黄色连接失败反馈。
 
 ## Blockers（跨切片，待 yufeng 外部资源）
 

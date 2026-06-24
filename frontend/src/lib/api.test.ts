@@ -5,9 +5,11 @@ import {
   buildAnswerBody,
   deleteQuestion,
   generateDraftQuiz,
+  getLlmSettings,
   listDraftQuestions,
   parseApiError,
   publishQuestion,
+  saveLlmSettings,
   submitAnswer,
   updateQuestion,
 } from "../lib/api";
@@ -206,6 +208,79 @@ describe("draft review API", () => {
     expect(fetchMock).toHaveBeenCalledWith("http://localhost:8000/api/questions/7", {
       method: "DELETE",
     });
+  });
+});
+
+describe("settings API", () => {
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("保存 LLM 配置时返回脱敏状态，不把明文 key 暴露给调用方", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        config: {
+          provider: "openai",
+          has_api_key: true,
+          model: "gpt-4o",
+          base_url: "https://api.example.com/v1",
+        },
+        connection: {
+          ok: false,
+          provider: "openai",
+          model: "gpt-4o",
+          message: "connection refused",
+        },
+      }),
+    );
+
+    const saved = await saveLlmSettings({
+      provider: "openai",
+      api_key: "sk-never-return",
+      model: "gpt-4o",
+      base_url: "https://api.example.com/v1",
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith("http://localhost:8000/api/settings/llm", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        provider: "openai",
+        api_key: "sk-never-return",
+        model: "gpt-4o",
+        base_url: "https://api.example.com/v1",
+      }),
+    });
+    expect(saved.config.has_api_key).toBe(true);
+    expect("api_key" in saved.config).toBe(false);
+    expect(JSON.stringify(saved)).not.toContain("sk-never-return");
+    expect(saved.connection.ok).toBe(false);
+    expect(saved.connection.message).toBe("connection refused");
+  });
+
+  it("读取 LLM 配置只返回 has_api_key 脱敏状态", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        provider: "mock",
+        has_api_key: true,
+        model: "mock-model",
+        base_url: null,
+      }),
+    );
+
+    const config = await getLlmSettings();
+
+    expect(fetchMock).toHaveBeenCalledWith("http://localhost:8000/api/settings/llm", {
+      method: "GET",
+    });
+    expect(config.has_api_key).toBe(true);
+    expect("api_key" in config).toBe(false);
   });
 });
 

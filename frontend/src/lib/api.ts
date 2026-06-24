@@ -8,6 +8,9 @@ import type {
   AnswerOut,
   DocumentDetail,
   DraftQuizGenerationRequest,
+  LlmConfigOut,
+  LlmConfigRequest,
+  LlmConfigSaveResponse,
   QuestionOut,
   QuestionUpdateRequest,
   QuizGenerationRequest,
@@ -88,6 +91,28 @@ export function generateDraftQuiz(
   body?: DraftQuizGenerationRequest,
 ): Promise<QuizGenerationResponse> {
   return generateQuiz(documentId, { ...body, auto_publish: false });
+}
+
+/** 读取脱敏 LLM 配置；明文 API key 永不由后端返回。 */
+export async function getLlmSettings(): Promise<LlmConfigOut> {
+  const resp = await fetch(`${apiBaseUrl()}/api/settings/llm`, {
+    method: "GET",
+  });
+  if (!resp.ok) throw await asApiError(resp);
+  return (await resp.json()) as LlmConfigOut;
+}
+
+/** 保存 LLM 配置并获取连通检查结果。 */
+export async function saveLlmSettings(
+  body: LlmConfigRequest,
+): Promise<LlmConfigSaveResponse> {
+  const resp = await fetch(`${apiBaseUrl()}/api/settings/llm`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!resp.ok) throw await asApiError(resp);
+  return (await resp.json()) as LlmConfigSaveResponse;
 }
 
 /** 读取文档草稿题，供前端预览/编辑/发布。 */

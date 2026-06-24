@@ -8,6 +8,7 @@ import { DraftReview } from "@/components/DraftReview";
 import { GenerationControls } from "@/components/GenerationControls";
 import { QuizPlayer } from "@/components/QuizPlayer";
 import { ResultView } from "@/components/ResultView";
+import { SettingsPanel } from "@/components/SettingsPanel";
 import type {
   AnswerOut,
   DocumentDetail,
@@ -60,6 +61,8 @@ export default function Page() {
       <p className="subtitle">上传课件 PDF，自动出选择题，错题反馈引用课件原文</p>
 
       {error && <p className="feedback err">{error}</p>}
+
+      <SettingsPanel />
 
       {stage === "idle" && (
         <Uploader

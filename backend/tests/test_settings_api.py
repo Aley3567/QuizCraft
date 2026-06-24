@@ -67,6 +67,36 @@ async def test_post_then_get_roundtrip(client, monkeypatch):
     assert "sk-should-be-hidden" not in got.text
 
 
+async def test_post_without_api_key_preserves_existing_secret(client, monkeypatch):
+    """已保存 key 后再次保存 model/base_url 时，可省略 api_key 且保留 has_api_key=True。"""
+    monkeypatch.setenv("QUIZCRAFT_SECRET_KEY", "router-test-secret")
+
+    created = await client.post(
+        "/api/settings/llm",
+        json={
+            "provider": "mock",
+            "api_key": "sk-hidden",
+            "model": "first-model",
+        },
+    )
+    assert created.status_code == HTTP_200_OK
+    assert created.json()["config"]["has_api_key"] is True
+
+    updated = await client.post(
+        "/api/settings/llm",
+        json={
+            "provider": "mock",
+            "model": "second-model",
+            "base_url": "https://api.example.com/v1",
+        },
+    )
+    assert updated.status_code == HTTP_200_OK
+    body = updated.json()
+    assert body["config"]["model"] == "second-model"
+    assert body["config"]["has_api_key"] is True
+    assert "sk-hidden" not in updated.text
+
+
 async def test_post_api_key_without_secret_rejected(client, monkeypatch):
     """有 api_key 但未配置 secret → 400（拒绝明文落库敏感凭证）。"""
     monkeypatch.delenv("QUIZCRAFT_SECRET_KEY", raising=False)
