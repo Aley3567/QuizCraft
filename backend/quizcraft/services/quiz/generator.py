@@ -23,6 +23,7 @@ from quizcraft.services.quiz.prompts import (
     build_eval_messages,
     build_step1_messages,
     build_step2_messages,
+    build_step2_short_answer_messages,
 )
 
 
@@ -50,10 +51,12 @@ class GeneratedConcept:
 
 @dataclass
 class GeneratedQuestion:
-    """Step2 产物：带 source_span 的选择题。
+    """Step2 产物：带 source_span 的题目（选择题或简答题）。
 
     section_index / concept_index 指向输入 sections / 生成 concepts 列表位置，
     落库时据此建外键；concept_name 用于校验关联。
+    - 选择题：options 非空 + correct_option_index 有效；answer_text=None
+    - 简答题：options=[] + correct_option_index=None；answer_text 为参考答案/rubric
     """
 
     section_index: int
@@ -61,11 +64,13 @@ class GeneratedQuestion:
     concept_name: str | None
     stem: str
     options: list[str]
-    correct_option_index: int
+    correct_option_index: int | None
     explanation: str | None
     bloom_level: str | None
     difficulty: str | None
     source_span: dict  # {page, section_path, text}
+    question_type: str = "multiple_choice"
+    answer_text: str | None = None
     self_eval_score: float | None = None
 
 
@@ -106,6 +111,45 @@ def _build_source_span(section: DocumentSection, source_text: str | None) -> dic
     }
 
 
+def _build_generated_question(qtype, concept_index, concept, section, q) -> GeneratedQuestion:
+    """按题型从 LLM 返回的单题 dict 构造 GeneratedQuestion。
+
+    - multiple_choice：options + correct_option_index 必填，answer_text=None
+    - short_answer：answer_text 必填，options=[] + correct_option_index=None
+    Keyerror/TypeError（缺必填字段）由调用方捕获后跳过该题。
+    """
+    source_span = _build_source_span(section, q.get("source_text"))
+    if qtype == "short_answer":
+        return GeneratedQuestion(
+            section_index=concept.section_index,
+            concept_index=concept_index,
+            concept_name=concept.name,
+            stem=q["stem"],
+            options=[],
+            correct_option_index=None,
+            explanation=q.get("explanation"),
+            bloom_level=q.get("bloom_level"),
+            difficulty=q.get("difficulty"),
+            source_span=source_span,
+            question_type="short_answer",
+            answer_text=q.get("answer_text"),
+        )
+    return GeneratedQuestion(
+        section_index=concept.section_index,
+        concept_index=concept_index,
+        concept_name=concept.name,
+        stem=q["stem"],
+        options=q["options"],
+        correct_option_index=q["correct_option_index"],
+        explanation=q.get("explanation"),
+        bloom_level=q.get("bloom_level"),
+        difficulty=q.get("difficulty"),
+        source_span=source_span,
+        question_type="multiple_choice",
+        answer_text=None,
+    )
+
+
 def filter_sections_by_scope(sections, chapter_scope: list[str] | None) -> list:
     """按 section_path 子串白名单过滤分块（子系统2 chapter_scope）。
 
@@ -140,6 +184,8 @@ async def generate_quiz(
       - number：目标题数，自评后截断保留高分题（None 不限）。
       - difficulty_range：允许的难度集合，自评前剔除不在范围的题（filtered_count 计数）。
       - question_types / bloom_distribution：透传 prompt 约束 LLM（题型生成当前仅 multiple_choice）。
+    - 子系统3：question_types 含 short_answer 时按题型分支生成简答题（带 answer_text 参考答案）；
+      简答题跳过生成期自评（评分在答题时由 LLM rubric 完成）。
     """
     # Step1：逐分块提取概念
     concepts: list[GeneratedConcept] = []
@@ -167,42 +213,42 @@ async def generate_quiz(
             except (KeyError, TypeError):
                 continue
 
-    # Step2：逐概念生成选择题
+    # 题型集合：None → 默认选择题（向后兼容切片 1.1）；去重保序
+    qtypes = list(dict.fromkeys(question_types)) if question_types else ["multiple_choice"]
+
+    # Step2：逐概念 × 题型 生成题目
     raw_questions: list[GeneratedQuestion] = []
     for ci, concept in enumerate(concepts):
         section = sections[concept.section_index]
-        resp = await llm.complete(
-            build_step2_messages(
-                concept,
-                section,
-                n=questions_per_concept,
-                difficulty_range=difficulty_range,
-                question_types=question_types,
-                bloom_distribution=bloom_distribution,
-            )
-        )
-        try:
-            data = _extract_json(resp.content)
-        except (ValueError, json.JSONDecodeError):
-            continue
-        for q in data.get("questions", []):
-            try:
-                raw_questions.append(
-                    GeneratedQuestion(
-                        section_index=concept.section_index,
-                        concept_index=ci,
-                        concept_name=concept.name,
-                        stem=q["stem"],
-                        options=q["options"],
-                        correct_option_index=q["correct_option_index"],
-                        explanation=q.get("explanation"),
-                        bloom_level=q.get("bloom_level"),
-                        difficulty=q.get("difficulty"),
-                        source_span=_build_source_span(section, q.get("source_text")),
-                    )
+        for qtype in qtypes:
+            if qtype == "short_answer":
+                msgs = build_step2_short_answer_messages(
+                    concept,
+                    section,
+                    n=questions_per_concept,
+                    difficulty_range=difficulty_range,
+                    bloom_distribution=bloom_distribution,
                 )
-            except (KeyError, TypeError):
+            else:
+                msgs = build_step2_messages(
+                    concept,
+                    section,
+                    n=questions_per_concept,
+                    difficulty_range=difficulty_range,
+                    bloom_distribution=bloom_distribution,
+                )
+            resp = await llm.complete(msgs)
+            try:
+                data = _extract_json(resp.content)
+            except (ValueError, json.JSONDecodeError):
                 continue
+            for q in data.get("questions", []):
+                try:
+                    raw_questions.append(
+                        _build_generated_question(qtype, ci, concept, section, q)
+                    )
+                except (KeyError, TypeError):
+                    continue
 
     # 子系统2：difficulty_range 过滤（自评前剔除，避免对不要的题浪费 LLM 自评调用）
     filtered_count = 0
@@ -218,13 +264,18 @@ async def generate_quiz(
     else:
         candidates = raw_questions
 
-    # Step3：简化自评（可选）
+    # Step3：简化自评（可选，仅选择题；简答题评分在答题时由 LLM rubric 完成）
     kept: list[GeneratedQuestion] = []
     dropped = 0
     if self_eval_threshold is None:
         kept = list(candidates)
     else:
         for question in candidates:
+            if question.question_type == "short_answer":
+                # 简答题跳过生成期自评：无选项可评，评分延后到答题时
+                question.self_eval_score = None
+                kept.append(question)
+                continue
             section = sections[question.section_index]
             resp = await llm.complete(
                 build_eval_messages(question, section_content=section.content)

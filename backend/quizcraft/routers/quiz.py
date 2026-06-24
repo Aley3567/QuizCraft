@@ -26,8 +26,11 @@ from quizcraft.services.quiz import filter_sections_by_scope, generate_quiz
 
 router = APIRouter(prefix="/api/documents", tags=["quiz"])
 
-# 子系统2：当前仅支持选择题；判断/填空/简答的生成留后续子系统配套评分方式
-SUPPORTED_QUESTION_TYPES = {QuestionType.MULTIPLE_CHOICE.value}
+# 子系统3：支持选择题与简答题；判断/填空留后续（评分方式绑定）
+SUPPORTED_QUESTION_TYPES = {
+    QuestionType.MULTIPLE_CHOICE.value,
+    QuestionType.SHORT_ANSWER.value,
+}
 
 
 @router.post("/{document_id}/generate-quiz", response_model=QuizGenerationResponse, status_code=201)
@@ -64,8 +67,8 @@ async def generate_quiz_for_document(
             raise HTTPException(
                 status_code=400,
                 detail=(
-                    f"暂不支持题型: {sorted(unsupported)}（当前仅 multiple_choice；"
-                    "判断/填空/简答留待后续子系统）"
+                    f"暂不支持题型: {sorted(unsupported)}（当前支持 multiple_choice / short_answer；"
+                    "判断/填空留待后续子系统）"
                 ),
             )
 
@@ -101,7 +104,7 @@ async def generate_quiz_for_document(
         await session.flush()
         concept_orm.append(concept)
 
-    # 落库 Questions
+    # 落库 Questions（按题型落对应字段：选择题 options/correct_option_index，简答题 answer_text）
     question_orm: list[Question] = []
     for gq in gen.questions:
         section = sections[gq.section_index]
@@ -114,10 +117,11 @@ async def generate_quiz_for_document(
             document_id=document_id,
             concept_id=concept_id,
             section_id=section.id,
-            question_type=QuestionType.MULTIPLE_CHOICE,
+            question_type=QuestionType(gq.question_type),
             stem=gq.stem,
             options=gq.options,
             correct_option_index=gq.correct_option_index,
+            answer_text=gq.answer_text,
             explanation=gq.explanation,
             source_span=gq.source_span,
             bloom_level=gq.bloom_level,

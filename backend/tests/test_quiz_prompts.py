@@ -110,3 +110,44 @@ def test_step2_prompt_default_includes_four_bloom_levels():
     blob = msgs[0].content + msgs[1].content
     for level in ("记忆", "理解", "应用", "分析"):
         assert level in blob
+
+
+def test_step2_short_answer_prompt_requires_answer_rubric_and_source():
+    """子系统3：简答 Step2 prompt 要求 answer_text（参考答案/rubric）+ source_text 锚定，不要求 options。"""
+    from quizcraft.services.quiz.prompts import build_step2_short_answer_messages
+
+    concept = SimpleNamespace(name="光合作用", description="植物利用光能合成有机物")
+    msgs = build_step2_short_answer_messages(concept, _section(), n=2)
+    assert len(msgs) == 2
+
+    blob = msgs[0].content + msgs[1].content
+    assert "JSON" in blob
+    assert "answer_text" in blob  # 参考答案/rubric
+    assert "source_text" in blob  # 来源锚定
+    assert "options" not in blob  # 简答题无选项
+    assert "short_answer" in blob  # 明确简答题型
+    assert "光合作用" in msgs[1].content
+    assert _section().content in msgs[1].content
+
+
+def test_short_answer_eval_prompt_uses_rubric_and_student_answer():
+    """子系统3：简答评分 prompt 以参考答案为 rubric + 学生作答 + 文档原文，要求 score(0-1) + feedback。"""
+    from quizcraft.services.quiz.prompts import build_short_answer_eval_messages
+
+    question = SimpleNamespace(
+        stem="简述光反应的发生部位。",
+        answer_text="光反应发生在类囊体膜上，负责水的光解与 ATP/NADPH 的生成。",
+        source_span={"text": "光反应发生在类囊体膜上。", "page": 12, "section_path": "第2章"},
+    )
+    msgs = build_short_answer_eval_messages(
+        question, student_answer="光反应在细胞核里进行", section_content=_section().content
+    )
+    assert len(msgs) == 2
+
+    blob = msgs[0].content + msgs[1].content
+    assert "score" in blob
+    assert "feedback" in blob
+    assert "JSON" in blob
+    # rubric（参考答案）与学生作答均嵌入
+    assert "类囊体膜" in msgs[1].content
+    assert "细胞核里进行" in msgs[1].content

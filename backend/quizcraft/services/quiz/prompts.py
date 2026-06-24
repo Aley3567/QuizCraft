@@ -125,6 +125,87 @@ def build_eval_messages(question, *, section_content: str) -> list[Message]:
     return [Message(role="system", content=system), Message(role="user", content=user)]
 
 
+def build_step2_short_answer_messages(
+    concept,
+    section,
+    *,
+    n: int = 2,
+    difficulty_range: list[str] | None = None,
+    bloom_distribution: dict | None = None,
+) -> list[Message]:
+    """Step2 简答题：基于概念 + 文档原文生成 n 道简答题，每题带参考答案 answer_text 与 source_text。
+
+    子系统3：简答题型生成。answer_text 作为参考答案/rubric，供答题时 LLM 评分依据。
+    简答题无 options/correct_option_index（由 generator 置 None）。
+
+    - difficulty_range / bloom_distribution：同选择题的约束语义（透传 prompt）
+    - Bloom 完整四层，explanation 开头简述为何定该层级
+    """
+    diff_clause = (
+        f"difficulty 只能取 {_fmt_list(difficulty_range)}（不得取其他难度）。\n"
+        if difficulty_range
+        else 'difficulty 取 "easy"、"medium" 或 "hard"。\n'
+    )
+    bloom_dist_clause = (
+        f"题目 Bloom 层级分布应大致符合：{_fmt_dist(bloom_distribution)}；\n"
+        if bloom_distribution
+        else ""
+    )
+    system = (
+        "你是出题专家。基于给定概念和文档原文，生成简答题（short_answer）。\n"
+        f"生成 {n} 道题，每题必须提供参考答案 answer_text（作为评分 rubric），"
+        "answer_text 必须能从给定文档原文推导出来。\n"
+        + diff_clause
+        + bloom_dist_clause
+        + 'bloom_level 取 "记忆"、"理解"、"应用" 或 "分析"，并在 explanation 开头简述为何定为该层级。\n'
+        "每题必须附带文档原文 source_text（必须来自给定文档片段）。\n"
+        "严格只返回 JSON，不要输出任何解释或额外文字，格式：\n"
+        '{"questions": [{"stem": "题干", "answer_text": "参考答案", '
+        '"explanation": "解析", "bloom_level": "记忆", "difficulty": "easy", '
+        '"source_text": "文档原文片段"}]}'
+    )
+    user = (
+        f"概念：{concept.name}\n"
+        f"概念描述：{concept.description or ''}\n"
+        f"文档原文片段（章节：{section.section_path}，页码：{section.page_number}）：\n"
+        f"{section.content}"
+    )
+    return [Message(role="system", content=system), Message(role="user", content=user)]
+
+
+def build_short_answer_eval_messages(
+    question, *, student_answer: str, section_content: str
+) -> list[Message]:
+    """简答评分：以 answer_text 为 rubric，结合学生作答与文档原文，评 0-1 分 + 引用文档解释。
+
+    对齐 DESIGN_DECISIONS 4.3：反馈必须引用文档原文（页码 + 章节 + 原文片段），而非通用解析。
+    score 为 0-1 浮点（0=完全错误，1=完全正确）。
+    question: {stem, answer_text, source_span}
+    """
+    span = question.source_span or {}
+    page = span.get("page")
+    section_path = span.get("section_path", "")
+    source_text = span.get("text", "")
+    system = (
+        "你是学习辅导老师，负责评阅学生简答题。依据题目给定的参考答案作为评分 rubric，"
+        "结合学生作答与文档原文，给出 0-1 的浮点分数（0=完全错误，1=完全正确，允许小数）。\n"
+        "核心要求：feedback 必须引用文档具体段落（页码 + 章节路径 + 原文片段）解释对错，"
+        "而非与课件无关的通用解析。\n"
+        "严格只返回 JSON，不要输出任何解释或额外文字，格式：\n"
+        '{"score": 0.8, "feedback": "你的课件第12页提到：…原文…，所以…"}'
+    )
+    user = (
+        f"题干：{question.stem}\n"
+        f"参考答案（rubric）：{question.answer_text or ''}\n"
+        f"学生作答：{student_answer}\n"
+        f"课件页码：{page}\n"
+        f"章节路径：{section_path}\n"
+        f"课件原文片段：{source_text}\n"
+        f"实际文档片段：\n{section_content}"
+    )
+    return [Message(role="system", content=system), Message(role="user", content=user)]
+
+
 def build_feedback_messages(
     question, *, selected_option_index: int, is_correct: bool
 ) -> list[Message]:

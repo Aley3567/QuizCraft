@@ -7,16 +7,18 @@
 
 **STATUS: IN PROGRESS**
 
-- 当前切片：**Phase 1 切片 1.2（LLM 配置与出题增强）** —— 子系统 1 后端 + 子系统 2 后端完成，进行中
-- 上一轮完成：切片 1.2 子系统 2 后端（出题参数 number/difficulty_range/question_types/chapter_scope/bloom_distribution + Bloom 四层 + POST body），新增 11 测（累计 111）
-- 下一步：子系统 1 前端 Settings 页（打通"配置→测试"UI），或子系统 3 简答评分后端（LLM mock 可测）
+- 当前切片：**Phase 1 切片 1.2（LLM 配置与出题增强）** —— 子系统 1/2/3 后端完成，进行中
+- 上一轮完成：切片 1.2 子系统 3 简答评分后端（short_answer 题型生成 + LLM rubric 评分 0-1 + 引用文档反馈 +
+  Answer 按题型分流 + 混合会话结算），新增 20 测（累计 131）
+- 下一步：子系统 1 前端 Settings 页，或子系统 6 完整 6 维自评（纯逻辑层 TDD 友好），
+  或子系统 1 后端增量"运行时改用 DB 配置"
 
 ## 切片完成情况
 
 | 切片 | 状态 | progress 文件 | 备注 |
 |------|------|---------------|------|
 | 1.1 最小出题闭环 | COMPLETE | docs/progress/SLICE_1_1.md | 6 子系统全完成，后端 71 测 + 前端 21 测绿；真实 LLM/真实 PDF fixture 待 yufeng |
-| 1.2 LLM 配置与出题增强 | IN PROGRESS | docs/progress/SLICE_1_2.md | 子系统 1 后端（加密存储+API+连通测试）+ 子系统 2 后端（出题参数控制+Bloom 四层，11 新测）完成；前端 + 子系统 3-6 待 |
+| 1.2 LLM 配置与出题增强 | IN PROGRESS | docs/progress/SLICE_1_2.md | 子系统 1-3 后端完成（加密存储+API+连通测试 / 出题参数+Bloom四层 / 简答评分0-1+混合结算，20 新测）；前端 + 子系统 4-6 + 异步轮询待 |
 | 1.3 闪卡与 FSRS | 未开始 | — | 依赖 1.1+1.2 |
 | 1.4 DOCX 与分层解析 | 未开始 | — | 依赖 1.1+1.2 |
 | 1.5 自部署与离线 | 未开始 | — | 依赖 1.1-1.4 |
@@ -48,6 +50,14 @@
   `filter_sections_by_scope` 纯函数（section_path 子串白名单）+ Bloom 完整四层（记忆/理解/应用/分析，
   原仅记忆/理解）+ POST /api/documents/{id}/generate-quiz 接受可选 body（无 body 退回切片 1.1 默认）。
   question_types 当前仅 multiple_choice（多题型生成与评分方式绑定，留子系统 3 简答评分配套）。
+
+### 切片 1.2 子系统 3（轮次 3）
+
+- 简答评分后端：`QuestionType.SHORT_ANSWER` + Question 加 `answer_text`（参考答案/rubric）+
+  `correct_option_index` 可空 + Answer 加 `short_answer_text`/`score`；`generate_quiz` 按 question_types
+  分支生成简答题（`build_step2_short_answer_messages`）；`score_short_answer` 纯逻辑层（LLM rubric 评 0-1，
+  clamp + 兜底锚定来源）；`submit_answer` 按题型分流（选择确定性判分 / 简答 LLM 评分）；混合会话结算
+  `score=(选择题正确数+简答分数和)/总题数`；幂等 upsert 五字段。同步评分（异步轮询留真实 LLM 接入后）。
 
 ## Blockers（跨切片，待 yufeng 外部资源）
 

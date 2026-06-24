@@ -14,9 +14,13 @@ from quizcraft.db import Base, TimestampMixin
 
 
 class QuestionType(str, Enum):
-    """切片 1.1 只做选择题；判断题/填空题/简答题在切片 1.2 补。"""
+    """切片 1.1 选择题；切片 1.2 子系统 3 增加简答题（LLM rubric 评分 0-1）。
+
+    判断题/填空题留后续（判断=选择题特例，填空=精确匹配，与评分方式绑定）。
+    """
 
     MULTIPLE_CHOICE = "multiple_choice"
+    SHORT_ANSWER = "short_answer"
 
 
 class SessionStatus(str, Enum):
@@ -44,8 +48,11 @@ class Question(TimestampMixin, Base):
         SAEnum(QuestionType), default=QuestionType.MULTIPLE_CHOICE, nullable=False
     )
     stem: Mapped[str] = mapped_column(Text)
-    options: Mapped[list] = mapped_column(JSON)  # ["选项A", "选项B", ...]
-    correct_option_index: Mapped[int] = mapped_column(Integer)
+    options: Mapped[list] = mapped_column(JSON)  # 选择题选项；简答题为空列表
+    # 选择题正确答案下标；简答题无选项，记 None
+    correct_option_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # 简答题参考答案/rubric（LLM 评分依据）；选择题为 None
+    answer_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     explanation: Mapped[str | None] = mapped_column(Text, nullable=True)
     source_span: Mapped[dict] = mapped_column(JSON)  # {page, section_path, text}
     bloom_level: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -73,7 +80,7 @@ class QuizSession(TimestampMixin, Base):
 
 
 class Answer(TimestampMixin, Base):
-    """单题作答记录：选择题选项 + 判分 + LLM 引用原文反馈。"""
+    """单题作答记录：选择题选项判分 / 简答题 LLM 评分，均带 LLM 引用原文反馈。"""
 
     __tablename__ = "answers"
 
@@ -84,6 +91,12 @@ class Answer(TimestampMixin, Base):
     question_id: Mapped[int] = mapped_column(
         ForeignKey("questions.id", ondelete="CASCADE"), index=True
     )
+    # 选择题：学生所选选项下标；简答题为 None
     selected_option_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # 选择题确定性判分；简答题为 None（用 score）
     is_correct: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    # 简答题：学生作答文本；选择题为 None
+    short_answer_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 简答题 LLM rubric 评分 0-1；选择题为 None（用 is_correct）
+    score: Mapped[float | None] = mapped_column(Float, nullable=True)
     feedback: Mapped[str | None] = mapped_column(Text, nullable=True)

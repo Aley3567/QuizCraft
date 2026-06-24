@@ -125,7 +125,7 @@ async def test_generate_quiz_with_number_param(session, client, llm_mock):
 
 
 async def test_generate_quiz_unsupported_question_type_400(session, client, llm_mock):
-    """子系统2：question_types 含暂不支持的题型 → 400（当前仅 multiple_choice）。"""
+    """子系统2：question_types 含暂不支持的题型 → 400（true_false 仍不支持）。"""
     doc_id = await _seed_document(session)
     llm_mock.set_responses([])
     resp = await client.post(
@@ -133,7 +133,59 @@ async def test_generate_quiz_unsupported_question_type_400(session, client, llm_
         json={"question_types": ["true_false"]},
     )
     assert resp.status_code == 400
-    assert "multiple_choice" in resp.text
+    assert "true_false" in resp.text
+
+
+STEP2_SHORT = (
+    '{"questions": [{"stem": "简述光反应的发生部位。", '
+    '"answer_text": "光反应发生在类囊体膜上，负责水的光解。", "explanation": "考察光反应部位。", '
+    '"bloom_level": "理解", "difficulty": "medium", "source_text": "光反应发生在类囊体膜上。"}]}'
+)
+
+
+async def test_generate_quiz_short_answer_type(session, client, llm_mock):
+    """子系统3：question_types=['short_answer'] → 生成简答题落库，QuestionOut 含 answer_text，无 options。"""
+    doc_id = await _seed_document(session)
+    llm_mock.set_responses([STEP1, STEP2_SHORT])
+
+    resp = await client.post(
+        f"/api/documents/{doc_id}/generate-quiz",
+        json={"question_types": ["short_answer"]},
+    )
+    assert resp.status_code == HTTP_201_CREATED, resp.text
+    body = resp.json()
+
+    q = body["questions"][0]
+    assert q["question_type"] == "short_answer"
+    assert q["stem"] == "简述光反应的发生部位。"
+    assert q["answer_text"] == "光反应发生在类囊体膜上，负责水的光解。"
+    assert q["correct_option_index"] is None
+    assert q["options"] == []
+    assert q["source_span"]["page"] == 12
+    assert q["self_eval_score"] is None  # 简答跳过生成期自评
+
+
+async def test_generate_quiz_short_answer_answer_text_persisted(session, client, llm_mock):
+    """子系统3：简答参考答案 answer_text 落库可回查（判分子系统评分依赖此字段）。"""
+    doc_id = await _seed_document(session)
+    llm_mock.set_responses([STEP1, STEP2_SHORT])
+    resp = await client.post(
+        f"/api/documents/{doc_id}/generate-quiz",
+        json={"question_types": ["short_answer"]},
+    )
+    assert resp.status_code == HTTP_201_CREATED
+    question_id = resp.json()["questions"][0]["id"]
+
+    from sqlalchemy import select
+
+    from quizcraft.models.quiz import Question, QuestionType
+
+    q = (
+        await session.execute(select(Question).where(Question.id == question_id))
+    ).scalar_one()
+    assert q.question_type == QuestionType.SHORT_ANSWER
+    assert q.answer_text == "光反应发生在类囊体膜上，负责水的光解。"
+    assert q.correct_option_index is None
 
 
 async def test_generate_quiz_with_chapter_scope_filters_sections(session, client, llm_mock):

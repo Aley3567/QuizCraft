@@ -207,3 +207,79 @@ def test_filter_sections_by_scope_multiple_keywords():
     s3 = SectionData(section_path="第3章 呼吸作用", page_number=9, content="z", token_count=5, order_index=2)
     kept = filter_sections_by_scope([s1, s2, s3], ["第1章", "第3章"])
     assert [s.section_path for s in kept] == ["第1章 绪论", "第3章 呼吸作用"]
+
+
+STEP2_SHORT_JSON = (
+    '{"questions": [{"stem": "简述光反应的发生部位。", '
+    '"answer_text": "光反应发生在类囊体膜上，负责水的光解。", "explanation": "考察光反应部位。", '
+    '"bloom_level": "理解", "difficulty": "medium", "source_text": "光反应发生在类囊体膜上。"}]}'
+)
+
+
+async def test_step2_generates_short_answer_question():
+    """子系统3：question_types=['short_answer'] → 生成简答题，无 options/correct_option_index，带 answer_text。"""
+    result = await generate_quiz(
+        [SECTION],
+        MockLLMClient(responses=[STEP1_JSON, STEP2_SHORT_JSON]),
+        self_eval_threshold=None,
+        question_types=["short_answer"],
+    )
+    assert len(result.questions) == 1
+    q = result.questions[0]
+    assert q.question_type == "short_answer"
+    assert q.stem == "简述光反应的发生部位。"
+    assert q.answer_text == "光反应发生在类囊体膜上，负责水的光解。"
+    assert q.correct_option_index is None
+    assert q.options == []
+    assert q.source_span["text"] == "光反应发生在类囊体膜上。"
+    assert q.source_span["page"] == 12
+
+
+async def test_mixed_question_types_generates_both_types():
+    """子系统3：question_types=['multiple_choice','short_answer'] → 每概念生成一道选择 + 一道简答。"""
+    result = await generate_quiz(
+        [SECTION],
+        MockLLMClient(responses=[STEP1_JSON, STEP2_JSON, STEP2_SHORT_JSON]),
+        self_eval_threshold=None,
+        questions_per_concept=1,
+        question_types=["multiple_choice", "short_answer"],
+    )
+    assert len(result.questions) == 2
+    types = {q.question_type for q in result.questions}
+    assert types == {"multiple_choice", "short_answer"}
+    sa = next(q for q in result.questions if q.question_type == "short_answer")
+    assert sa.answer_text is not None
+    mc = next(q for q in result.questions if q.question_type == "multiple_choice")
+    assert mc.correct_option_index == 1
+    assert mc.options == ["细胞核", "类囊体膜", "细胞壁", "液泡"]
+
+
+async def test_short_answer_skips_self_eval():
+    """子系统3：简答题跳过生成期自评（评分在答题时由 LLM rubric 完成），self_eval_score=None。"""
+    # 仅 3 次 LLM 调用：step1 + step2 简答（无自评调用），验证不耗第 4 次响应
+    result = await generate_quiz(
+        [SECTION],
+        MockLLMClient(responses=[STEP1_JSON, STEP2_SHORT_JSON]),
+        self_eval_threshold=0.6,
+        question_types=["short_answer"],
+    )
+    assert len(result.questions) == 1
+    assert result.questions[0].self_eval_score is None
+    assert result.dropped_count == 0  # 简答题不因自评被淘汰
+
+
+async def test_short_answer_respects_difficulty_range():
+    """子系统3：difficulty_range 同样过滤简答题（简答题也带 difficulty 字段）。"""
+    step2_hard = (
+        '{"questions": [{"stem": "题", "answer_text": "答", "explanation": "", '
+        '"bloom_level": "应用", "difficulty": "hard", "source_text": "光反应发生在类囊体膜上。"}]}'
+    )
+    result = await generate_quiz(
+        [SECTION],
+        MockLLMClient(responses=[STEP1_JSON, step2_hard]),
+        self_eval_threshold=None,
+        question_types=["short_answer"],
+        difficulty_range=["easy"],
+    )
+    assert len(result.questions) == 0
+    assert result.filtered_count == 1
