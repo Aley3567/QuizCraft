@@ -19,6 +19,7 @@ from quizcraft.models.setting import Setting
 from quizcraft.services.settings.crypto import decrypt_or_none, encrypt_or_none
 
 LLM_CONFIG_KEY = "llm_config"
+REVIEW_SETTINGS_KEY = "review_settings"
 
 
 @dataclass
@@ -45,6 +46,15 @@ class LLMConfigView:
     has_api_key: bool
     model: str | None
     base_url: str | None
+
+
+@dataclass
+class ReviewSettings:
+    """Flashcard review preferences stored as plain JSON."""
+
+    desired_retention: float = 0.9
+    daily_new_limit: int = 20
+    daily_review_limit: int = 200
 
 
 async def save_llm_config(session: AsyncSession, config: LLMConfig, secret: str) -> None:
@@ -108,4 +118,39 @@ async def load_llm_config_view(session: AsyncSession) -> LLMConfigView | None:
         has_api_key=bool(data.get("api_key_encrypted")),
         model=data.get("model"),
         base_url=data.get("base_url"),
+    )
+
+
+async def save_review_settings(session: AsyncSession, settings: ReviewSettings) -> None:
+    """Persist flashcard review preferences in the settings KV table."""
+    payload = json.dumps(
+        {
+            "desired_retention": settings.desired_retention,
+            "daily_new_limit": settings.daily_new_limit,
+            "daily_review_limit": settings.daily_review_limit,
+        },
+        ensure_ascii=False,
+    )
+    existing = await session.get(Setting, REVIEW_SETTINGS_KEY)
+    if existing is None:
+        session.add(Setting(key=REVIEW_SETTINGS_KEY, value=payload))
+    else:
+        existing.value = payload
+    await session.commit()
+
+
+async def load_review_settings(session: AsyncSession) -> ReviewSettings:
+    """Load flashcard review preferences, returning defaults before first save."""
+    row = (
+        await session.execute(select(Setting).where(Setting.key == REVIEW_SETTINGS_KEY))
+    ).scalar_one_or_none()
+    if row is None or row.value is None:
+        return ReviewSettings()
+
+    data = json.loads(row.value)
+    defaults = ReviewSettings()
+    return ReviewSettings(
+        desired_retention=data.get("desired_retention", defaults.desired_retention),
+        daily_new_limit=data.get("daily_new_limit", defaults.daily_new_limit),
+        daily_review_limit=data.get("daily_review_limit", defaults.daily_review_limit),
     )

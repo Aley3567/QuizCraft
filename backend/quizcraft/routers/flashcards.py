@@ -23,6 +23,7 @@ from quizcraft.schemas.flashcard import (
     FlashcardReviewOut,
     FlashcardReviewRequest,
 )
+from quizcraft.services.settings import load_review_settings
 
 router = APIRouter(prefix="/api/flashcards", tags=["flashcards"])
 
@@ -104,12 +105,26 @@ async def list_due_flashcards(
 ) -> list[FlashcardOut]:
     """List new cards and review cards due now."""
     now = utcnow_naive()
+    settings = await load_review_settings(session)
     result = await session.execute(
         select(Flashcard)
         .where(Flashcard.due_date <= now)
         .order_by(Flashcard.due_date, Flashcard.id)
     )
-    return [FlashcardOut.model_validate(card) for card in result.scalars().all()]
+    new_cards = []
+    review_cards = []
+    for card in result.scalars().all():
+        if card.state == "new":
+            new_cards.append(card)
+        else:
+            review_cards.append(card)
+
+    limited_cards = (
+        new_cards[: settings.daily_new_limit]
+        + review_cards[: settings.daily_review_limit]
+    )
+    limited_cards.sort(key=lambda card: (card.due_date, card.id))
+    return [FlashcardOut.model_validate(card) for card in limited_cards]
 
 
 @router.post("/{flashcard_id}/review", response_model=FlashcardReviewOut)

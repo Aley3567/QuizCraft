@@ -13,15 +13,19 @@ from quizcraft.services.settings.crypto import (
 from quizcraft.services.settings.store import (
     LLMConfig,
     LLMConfigView,
+    ReviewSettings,
     load_llm_config,
     load_llm_config_view,
+    load_review_settings,
     save_llm_config,
+    save_review_settings,
 )
 
 __all__ = [
     "ConnectionResult",
     "LLMConfig",
     "LLMConfigView",
+    "ReviewSettings",
     "check_llm_connection",
     "decrypt",
     "decrypt_or_none",
@@ -30,5 +34,7 @@ __all__ = [
     "encrypt_or_none",
     "load_llm_config",
     "load_llm_config_view",
+    "load_review_settings",
     "save_llm_config",
+    "save_review_settings",
 ]

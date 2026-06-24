@@ -78,6 +78,45 @@ async def _seed_concept_question(session):
     return doc.id, concept.id, quiz.id, question.id
 
 
+async def _seed_concepts(session, count: int):
+    """Seed multiple source-linked concepts for public flashcard creation tests."""
+    doc = Document(filename="lecture.pdf", page_count=1, status=DocumentStatus.COMPLETE)
+    session.add(doc)
+    await session.flush()
+
+    section = Section(
+        document_id=doc.id,
+        section_path="第2章 光合作用",
+        page_number=12,
+        content="光反应、暗反应和叶绿体都与光合作用有关。",
+        order_index=0,
+        token_count=20,
+    )
+    session.add(section)
+    await session.flush()
+
+    concept_ids = []
+    for index in range(count):
+        concept = Concept(
+            document_id=doc.id,
+            section_id=section.id,
+            name=f"概念{index + 1}",
+            description=f"概念{index + 1}的定义",
+            source_span={
+                "page": 12,
+                "section_path": "第2章 光合作用",
+                "text": "光反应、暗反应和叶绿体都与光合作用有关。",
+            },
+            bloom_level="理解",
+        )
+        session.add(concept)
+        await session.flush()
+        concept_ids.append(concept.id)
+
+    await session.commit()
+    return doc.id, concept_ids
+
+
 async def _seed_open_ended_flashcard_quiz(session, question_type: QuestionType):
     """Seed one target fill/short-answer question plus one unanswered blocker.
 
@@ -346,6 +385,32 @@ async def test_review_endpoint_accepts_all_remaining_ratings(
     assert logs[0].flashcard_id == card["id"]
     assert logs[0].rating == rating.lower()
     assert logs[0].scheduled_days == expected_scheduled_days
+
+
+async def test_review_settings_daily_new_limit_reduces_due_cards(session, client):
+    """Changing review settings constrains the public due-card query."""
+    _document_id, concept_ids = await _seed_concepts(session, 3)
+    create_resp = await client.post(
+        "/api/flashcards/from-concepts",
+        json={"concept_ids": concept_ids},
+    )
+    assert create_resp.status_code == 201, create_resp.text
+    created_ids = [item["id"] for item in create_resp.json()]
+
+    default_due_resp = await client.get("/api/flashcards/due")
+    assert default_due_resp.status_code == 200, default_due_resp.text
+    assert [item["id"] for item in default_due_resp.json()] == created_ids
+
+    settings_resp = await client.put(
+        "/api/settings/review",
+        json={"daily_new_limit": 2, "daily_review_limit": 20, "desired_retention": 0.9},
+    )
+    assert settings_resp.status_code == 200, settings_resp.text
+    assert settings_resp.json()["daily_new_limit"] == 2
+
+    limited_due_resp = await client.get("/api/flashcards/due")
+    assert limited_due_resp.status_code == 200, limited_due_resp.text
+    assert [item["id"] for item in limited_due_resp.json()] == created_ids[:2]
 
 
 @pytest.mark.parametrize(

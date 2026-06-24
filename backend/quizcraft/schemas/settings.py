@@ -1,7 +1,7 @@
 """settings 相关 Pydantic 请求/响应模型。"""
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class LLMConfigRequest(BaseModel):
@@ -40,3 +40,21 @@ class LLMConfigSaveResponse(BaseModel):
 
     config: LLMConfigOut
     connection: ConnectionResultOut
+
+
+class ReviewSettingsRequest(BaseModel):
+    """PUT /api/settings/review 请求：闪卡复习偏好。"""
+
+    desired_retention: float = Field(ge=0.5, le=0.99)
+    daily_new_limit: int = Field(ge=0)
+    daily_review_limit: int = Field(ge=0)
+
+
+class ReviewSettingsOut(BaseModel):
+    """Flashcard review settings response."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    desired_retention: float
+    daily_new_limit: int
+    daily_review_limit: int

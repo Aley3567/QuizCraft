@@ -18,13 +18,18 @@ from quizcraft.schemas.settings import (
     LLMConfigOut,
     LLMConfigRequest,
     LLMConfigSaveResponse,
+    ReviewSettingsOut,
+    ReviewSettingsRequest,
 )
 from quizcraft.services.settings import (
     LLMConfig,
+    ReviewSettings,
     check_llm_connection,
     load_llm_config,
     load_llm_config_view,
+    load_review_settings,
     save_llm_config,
+    save_review_settings,
 )
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
@@ -83,6 +88,29 @@ async def save_llm_settings(
         config=LLMConfigOut.model_validate(view),
         connection=ConnectionResultOut.model_validate(connection),
     )
+
+
+@router.get("/review", response_model=ReviewSettingsOut)
+async def get_review_settings(
+    session: AsyncSession = Depends(get_session),
+) -> ReviewSettingsOut:
+    """Return flashcard review preferences, including defaults before first save."""
+    return ReviewSettingsOut.model_validate(await load_review_settings(session))
+
+
+@router.put("/review", response_model=ReviewSettingsOut)
+async def update_review_settings(
+    body: ReviewSettingsRequest,
+    session: AsyncSession = Depends(get_session),
+) -> ReviewSettingsOut:
+    """Persist flashcard review preferences."""
+    settings = ReviewSettings(
+        desired_retention=body.desired_retention,
+        daily_new_limit=body.daily_new_limit,
+        daily_review_limit=body.daily_review_limit,
+    )
+    await save_review_settings(session, settings)
+    return ReviewSettingsOut.model_validate(settings)
 
 
 __all__ = ["router"]
