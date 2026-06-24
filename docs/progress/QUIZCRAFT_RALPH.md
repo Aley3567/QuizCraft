@@ -1,31 +1,29 @@
 # QuizCraft Ralph 循环总进度
 
-> 全局进度索引。每轮 Ralph 读写本文件顶部。状态活在 git commit + 各切片 progress 文件，不靠对话记忆。
-> 调度顺序：Phase 1 (1.1→1.5) → Phase 2 (2.1→2.5) → Phase 3 issue #5-#9 → Phase 4 issue #10-#15。
+> 全局进度索引。每轮 Codex Ralph 读写本文件顶部。状态活在 git commit + issue progress 文件，不靠对话记忆。
+> 当前调度顺序：`docs/agents/tdd-issue-split.md` 的 TDD 行为切片队列 #16-#38。
 
 ## 当前状态
 
 **STATUS: IN PROGRESS**
 
-- 当前切片：**Phase 1 切片 1.2（LLM 配置与出题增强）** —— `STATUS: BLOCKED`
-  （可运行后端工作已耗尽；剩余前端/真实 LLM 异步轮询需要 yufeng 或真实环境解锁）
-- 上一轮完成：Codex 接管 stale Ralph 的 fill_blank 半成品，补齐填空题生成/API/答题分流/反馈接线，
-  全量后端 `uv run pytest` 199 passed
-- 下一步：停止 Ralph drain 并通知 yufeng。不要继续领取 1.2，也不要推进依赖 1.2 COMPLETE 的 1.3；
-  待 yufeng 解锁前端浏览器验证、真实 LLM key/异步轮询，或明确允许跳过前端后再继续。
+- 当前队列：GitHub TDD issues #16-#38；旧功能桶 issues #5-#15 已 superseded。
+- 当前可领取：#16, #17, #18, #19（均为 `ready-for-agent,type:slice`）。
+- 下一步：Codex Ralph 领取最小编号 claimable issue，即 #16
+  `[TDD 1B] Draft question review loop before practice`。
+- 监控节奏：Codex heartbeat 每 20 分钟检查一次；同一 worktree 只允许一个 Ralph runner 写代码。
 
 ## 切片完成情况
 
 | 切片 | 状态 | progress 文件 | 备注 |
 |------|------|---------------|------|
 | 1.1 最小出题闭环 | COMPLETE | docs/progress/SLICE_1_1.md | 6 子系统全完成，后端 71 测 + 前端 21 测绿；真实 LLM/真实 PDF fixture 待 yufeng |
-| 1.2 LLM 配置与出题增强 | BLOCKED | docs/progress/SLICE_1_2.md | 子系统 1-6 后端全部完成（加密存储+API+连通测试 / 运行时 DB 配置优先 env 回退 / 出题参数+Bloom四层 / 填空题生成+确定性评分 / 简答评分0-1+混合结算 / 交叉出题+标记坏题 / 完整6维自评+可配阈值 / 预览编辑+删除+确认进池+auto_publish）；全量后端 199 passed；剩余前端+异步轮询皆 blocker |
-| 1.3 闪卡与 FSRS | 未开始 | — | 依赖 1.1+1.2 |
-| 1.4 DOCX 与分层解析 | 未开始 | — | 依赖 1.1+1.2 |
-| 1.5 自部署与离线 | 未开始 | — | 依赖 1.1-1.4 |
-| 2.1-2.5 | 未开始 | — | 依赖 Phase 1 |
-| 3.1-3.5 (issue #5-#9) | 未开始 | — | 依赖 Phase 1+2 |
-| 4.1-4.6 (issue #10-#15) | 未开始 | — | 依赖 Phase 1-3 |
+| 1.2 后端能力存量 | PARTIAL | docs/progress/SLICE_1_2.md | 作为 #16-#19 的后端基础使用；不再作为当前执行队列 |
+| #16 Draft question review loop | 未开始 | docs/progress/ISSUE_16.md | claimable |
+| #17 Quiz generation controls UI | 未开始 | docs/progress/ISSUE_17.md | claimable |
+| #18 Mixed question answering loop | 未开始 | docs/progress/ISSUE_18.md | claimable |
+| #19 LLM settings UI/runtime smoke | 未开始 | docs/progress/ISSUE_19.md | claimable |
+| #20-#38 | 未开始/阻塞 | docs/progress/ISSUE_<n>.md | 依赖前序 TDD issue |
 
 ## 已完成总览
 
