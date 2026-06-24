@@ -14,20 +14,30 @@ export function isQuizComplete(answers: AnswerMap, questionIds: number[]): boole
   return questionIds.length > 0 && questionIds.every((id) => answers[id] != null);
 }
 
-/** 得分 = 正确数 / 总数；未答完或无题返回 null。 */
+/** 得分 = 客观题正确数 + 主观题部分分 / 总数；未答完或无题返回 null。 */
 export function computeScore(answers: AnswerMap, questionIds: number[]): number | null {
   if (questionIds.length === 0) return null;
   if (!isQuizComplete(answers, questionIds)) return null;
-  const correct = questionIds.filter((id) => answers[id]?.is_correct === true).length;
-  return correct / questionIds.length;
+  const earned = questionIds.reduce((sum, id) => {
+    const answer = answers[id];
+    if (answer?.is_correct === true) return sum + 1;
+    if (answer?.score != null) return sum + answer.score;
+    return sum;
+  }, 0);
+  return earned / questionIds.length;
 }
 
-/** 按题目顺序筛出答错的题（未作答不计入错题）。 */
+/** 按题目顺序筛出答错/未满分的题（未作答不计入反馈列表）。 */
 export function wrongQuestions(
   questions: QuestionOut[],
   answers: AnswerMap,
 ): QuestionOut[] {
-  return questions.filter((q) => answers[q.id]?.is_correct === false);
+  return questions.filter((q) => {
+    const answer = answers[q.id];
+    if (!answer) return false;
+    if (answer.is_correct === false) return true;
+    return answer.score != null && answer.score < 1;
+  });
 }
 
 /** 把 source_span 渲染成「第X页（章节路径）」式可读引用；信息缺失回退「参考课件」。 */

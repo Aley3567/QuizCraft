@@ -16,7 +16,12 @@ export function ResultView({
 }) {
   const ids = questions.map((q) => q.id);
   const score = computeScore(answers, ids);
-  const correctCount = ids.filter((id) => answers[id]?.is_correct === true).length;
+  const earned = ids.reduce((sum, id) => {
+    const answer = answers[id];
+    if (answer?.is_correct === true) return sum + 1;
+    if (answer?.score != null) return sum + answer.score;
+    return sum;
+  }, 0);
   const wrongs = wrongQuestions(questions, answers);
 
   return (
@@ -24,7 +29,7 @@ export function ResultView({
       <div className="card">
         <div className="score">
           {score != null
-            ? `正确 ${correctCount} / ${ids.length}（${Math.round(score * 100)}%）`
+            ? `得分 ${earned.toFixed(1)} / ${ids.length}（${Math.round(score * 100)}%）`
             : "未完成答题"}
         </div>
       </div>
@@ -40,6 +45,12 @@ export function ResultView({
                 <div>{q.stem}</div>
                 {selected != null && (
                   <div className="muted">你的选择：{String.fromCharCode(65 + selected)}. {q.options[selected]}</div>
+                )}
+                {a?.short_answer_text && (
+                  <div className="muted">你的答案：{a.short_answer_text}</div>
+                )}
+                {a?.score != null && (
+                  <div className="muted">得分：{Math.round(a.score * 100)}%</div>
                 )}
                 <div style={{ marginTop: 8 }}>{a?.feedback || "（无反馈）"}</div>
                 <div className="source">

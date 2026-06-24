@@ -22,11 +22,16 @@ export function QuizPlayer({
   const [viewIdx, setViewIdx] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [textAnswer, setTextAnswer] = useState("");
 
   const current = questions[viewIdx];
   if (!current) return null;
   const lastAnswer = answers[current.id] ?? null;
   const isLast = viewIdx === questions.length - 1;
+  const isTextQuestion =
+    current.question_type === "fill_blank" || current.question_type === "short_answer";
+  const feedbackClass =
+    lastAnswer?.is_correct === true || lastAnswer?.score === 1 ? "ok" : "err";
 
   async function choose(optionIndex: number) {
     setError(null);
@@ -43,11 +48,27 @@ export function QuizPlayer({
     }
   }
 
+  async function submitTextAnswer() {
+    setError(null);
+    setSubmitting(true);
+    try {
+      const ans = await submitAnswer(sessionId, current.id, { text: textAnswer });
+      onAnswered(current.id, ans);
+    } catch (e) {
+      setError(
+        e instanceof ApiError ? e.message : e instanceof Error ? e.message : String(e),
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   function next() {
     if (isLast) {
       onFinish();
     } else {
       setViewIdx((i) => i + 1);
+      setTextAnswer("");
     }
   }
 
@@ -59,24 +80,57 @@ export function QuizPlayer({
         {current.difficulty && <span className="tag">{current.difficulty}</span>}
       </div>
       <div style={{ fontSize: 16 }}>{current.stem}</div>
-      <div className="options">
-        {current.options.map((opt, i) => (
+      {isTextQuestion ? (
+        <div className="field">
+          <label htmlFor={`answer-${current.id}`}>
+            {current.question_type === "short_answer" ? "简答" : "填空"}
+          </label>
+          {current.question_type === "short_answer" ? (
+            <textarea
+              id={`answer-${current.id}`}
+              value={lastAnswer?.short_answer_text ?? textAnswer}
+              disabled={submitting || lastAnswer != null}
+              onChange={(e) => setTextAnswer(e.target.value)}
+            />
+          ) : (
+            <input
+              id={`answer-${current.id}`}
+              value={lastAnswer?.short_answer_text ?? textAnswer}
+              disabled={submitting || lastAnswer != null}
+              onChange={(e) => setTextAnswer(e.target.value)}
+            />
+          )}
           <button
-            key={i}
-            className={"option" + (lastAnswer?.selected_option_index === i ? " sel" : "")}
-            disabled={submitting || lastAnswer != null}
-            onClick={() => choose(i)}
+            className="btn"
+            disabled={submitting || lastAnswer != null || !textAnswer.trim()}
+            onClick={submitTextAnswer}
           >
-            {String.fromCharCode(65 + i)}. {opt}
+            提交答案
           </button>
-        ))}
-      </div>
+        </div>
+      ) : (
+        <div className="options">
+          {current.options.map((opt, i) => (
+            <button
+              key={i}
+              className={"option" + (lastAnswer?.selected_option_index === i ? " sel" : "")}
+              disabled={submitting || lastAnswer != null}
+              onClick={() => choose(i)}
+            >
+              {String.fromCharCode(65 + i)}. {opt}
+            </button>
+          ))}
+        </div>
+      )}
 
       {error && <p className="feedback err">{error}</p>}
 
       {lastAnswer && (
         <>
-          <div className={"feedback " + (lastAnswer.is_correct ? "ok" : "err")}>
+          <div className={"feedback " + feedbackClass}>
+            {lastAnswer.score != null && (
+              <div>得分：{Math.round(lastAnswer.score * 100)}%</div>
+            )}
             {lastAnswer.feedback ||
               (lastAnswer.is_correct ? "回答正确。" : "回答错误。")}
           </div>

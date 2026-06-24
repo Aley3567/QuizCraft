@@ -9,7 +9,7 @@ import {
   wrongQuestions,
 } from "../lib/quiz-state";
 
-function ans(isCorrect: boolean): AnswerOut {
+function ans(isCorrect: boolean | null, score: number | null = null): AnswerOut {
   return {
     id: 1,
     quiz_session_id: 1,
@@ -17,7 +17,7 @@ function ans(isCorrect: boolean): AnswerOut {
     selected_option_index: 0,
     short_answer_text: null,
     is_correct: isCorrect,
-    score: null,
+    score,
     feedback: "x",
   };
 }
@@ -63,6 +63,19 @@ describe("computeScore", () => {
     expect(computeScore({ 1: ans(true), 2: ans(true) }, [1, 2])).toBe(1);
   });
 
+  it("混合客观题和简答题时按简答部分分结算", () => {
+    expect(
+      computeScore(
+        {
+          1: ans(true),
+          2: ans(null, 0.5),
+          3: ans(false),
+        },
+        [1, 2, 3],
+      ),
+    ).toBe(0.5);
+  });
+
   it("未答完返回 null", () => {
     expect(computeScore({ 1: ans(true) }, [1, 2])).toBeNull();
   });
@@ -77,6 +90,12 @@ describe("wrongQuestions", () => {
     const qs = [mkQ(1), mkQ(2), mkQ(3)];
     const answers = { 1: ans(true), 2: ans(false), 3: ans(false) };
     expect(wrongQuestions(qs, answers)).toEqual([qs[1], qs[2]]);
+  });
+
+  it("简答题未满分时进入反馈列表", () => {
+    const qs = [mkQ(1), mkQ(2), mkQ(3)];
+    const answers = { 1: ans(true), 2: ans(null, 0.7), 3: ans(null, 1) };
+    expect(wrongQuestions(qs, answers)).toEqual([qs[1]]);
   });
 
   it("未作答的题不算错题", () => {

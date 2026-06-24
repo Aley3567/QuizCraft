@@ -8,6 +8,7 @@ import {
   listDraftQuestions,
   parseApiError,
   publishQuestion,
+  submitAnswer,
   updateQuestion,
 } from "../lib/api";
 
@@ -56,10 +57,17 @@ describe("apiBaseUrl", () => {
 });
 
 describe("buildAnswerBody", () => {
-  it("构造答题请求体", () => {
+  it("构造选择题答题请求体", () => {
     expect(buildAnswerBody(7, 2)).toEqual({
       question_id: 7,
       selected_option_index: 2,
+    });
+  });
+
+  it("构造填空/简答题文本答题请求体", () => {
+    expect(buildAnswerBody(8, { text: "类囊体膜" })).toEqual({
+      question_id: 8,
+      short_answer_text: "类囊体膜",
     });
   });
 });
@@ -198,6 +206,47 @@ describe("draft review API", () => {
     expect(fetchMock).toHaveBeenCalledWith("http://localhost:8000/api/questions/7", {
       method: "DELETE",
     });
+  });
+});
+
+describe("answer API", () => {
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("提交填空/简答文本答案到公开答题端点", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        id: 3,
+        quiz_session_id: 2,
+        question_id: 8,
+        selected_option_index: null,
+        short_answer_text: "类囊体膜",
+        is_correct: true,
+        score: null,
+        feedback: "课件第12页提到类囊体膜。",
+      }),
+    );
+
+    const result = await submitAnswer(2, 8, { text: "类囊体膜" });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:8000/api/quiz-sessions/2/answer",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          question_id: 8,
+          short_answer_text: "类囊体膜",
+        }),
+      },
+    );
+    expect(result.short_answer_text).toBe("类囊体膜");
   });
 });
 

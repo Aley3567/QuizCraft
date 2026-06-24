@@ -14,6 +14,8 @@ import type {
   QuizGenerationResponse,
 } from "./types";
 
+export type AnswerInput = number | { selectedOptionIndex?: number; text?: string };
+
 /** 后端 API 基址，默认本机 FastAPI dev server（:8000）。 */
 export function apiBaseUrl(): string {
   return process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
@@ -138,20 +140,29 @@ export async function publishQuestion(questionId: number): Promise<QuestionOut> 
 }
 
 /** 构造答题请求体（与后端 AnswerRequest 对齐）。 */
-export function buildAnswerBody(questionId: number, selectedOptionIndex: number) {
-  return { question_id: questionId, selected_option_index: selectedOptionIndex };
+export function buildAnswerBody(questionId: number, answer: AnswerInput) {
+  if (typeof answer === "number") {
+    return { question_id: questionId, selected_option_index: answer };
+  }
+  if (answer.selectedOptionIndex != null) {
+    return {
+      question_id: questionId,
+      selected_option_index: answer.selectedOptionIndex,
+    };
+  }
+  return { question_id: questionId, short_answer_text: answer.text ?? "" };
 }
 
 /** 提交单题作答，返回判分结果 + 引用原文的 LLM 反馈。 */
 export async function submitAnswer(
   sessionId: number,
   questionId: number,
-  selectedOptionIndex: number,
+  answer: AnswerInput,
 ): Promise<AnswerOut> {
   const resp = await fetch(`${apiBaseUrl()}/api/quiz-sessions/${sessionId}/answer`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(buildAnswerBody(questionId, selectedOptionIndex)),
+    body: JSON.stringify(buildAnswerBody(questionId, answer)),
   });
   if (!resp.ok) throw await asApiError(resp);
   return (await resp.json()) as AnswerOut;

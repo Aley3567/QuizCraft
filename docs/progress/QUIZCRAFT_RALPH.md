@@ -8,11 +8,11 @@
 **STATUS: IN PROGRESS**
 
 - 当前队列：GitHub TDD issues #16-#38；旧功能桶 issues #5-#15 已 superseded。
-- 本轮完成：#17 `[TDD 1C] Quiz generation controls in the UI`
-  前端出题控制面板（题数、章节、难度、Bloom）+ generation params public API tests。
-- 当前可领取：#18, #19（均为 `ready-for-agent,type:slice`；需下轮 monitor 刷新 queue，让 #17 按本地 progress 标记 complete）。
-- 下一步：刷新 Ralph queue 后领取最小编号 claimable issue，预计 #18
-  `[TDD 1D] Mixed question answering loop`。
+- 本轮完成：#18 `[TDD 1D] Mixed question answering loop`
+  前端填空/简答答题输入 + 文本答案提交 + 混合题型部分分结果汇总。
+- 当前可领取：#19（`ready-for-agent,type:slice`；需下轮 monitor 刷新 queue，让 #18 按本地 progress 标记 complete）。
+- 下一步：刷新 Ralph queue 后领取最小编号 claimable issue，预计 #19
+  `[TDD 1E] LLM settings UI and runtime smoke`。
 - 监控节奏：Codex heartbeat 每 20 分钟检查一次；同一 worktree 只允许一个 Ralph runner 写代码。
 
 ## 切片完成情况
@@ -23,7 +23,7 @@
 | 1.2 后端能力存量 | PARTIAL | docs/progress/SLICE_1_2.md | 作为 #16-#19 的后端基础使用；不再作为当前执行队列 |
 | #16 Draft question review loop | COMPLETE | docs/progress/ISSUE_16.md | 前端草稿审核流 + 后端 draft APIs 验证完成 |
 | #17 Quiz generation controls UI | COMPLETE | docs/progress/ISSUE_17.md | 前端 generation controls + 参数请求行为完成 |
-| #18 Mixed question answering loop | 未开始 | docs/progress/ISSUE_18.md | claimable |
+| #18 Mixed question answering loop | COMPLETE | docs/progress/ISSUE_18.md | 前端混合题型答题和结果汇总完成 |
 | #19 LLM settings UI/runtime smoke | 未开始 | docs/progress/ISSUE_19.md | claimable |
 | #20-#38 | 未开始/阻塞 | docs/progress/ISSUE_<n>.md | 依赖前序 TDD issue |
 
