@@ -294,6 +294,61 @@ async def test_reviewing_new_due_card_records_log_and_updates_schedule(session, 
 
 
 @pytest.mark.parametrize(
+    ("rating", "expected_state", "expected_lapses", "expected_scheduled_days", "remains_due"),
+    [
+        ("Again", "learning", 1, 0, True),
+        ("Hard", "review", 0, 1, False),
+        ("Easy", "review", 0, 4, False),
+    ],
+)
+async def test_review_endpoint_accepts_all_remaining_ratings(
+    session,
+    client,
+    rating,
+    expected_state,
+    expected_lapses,
+    expected_scheduled_days,
+    remains_due,
+):
+    """Again/Hard/Easy reviews update public schedule state and create review logs."""
+    _document_id, concept_id, _quiz_id, _question_id = await _seed_concept_question(session)
+    create_resp = await client.post(
+        "/api/flashcards/from-concepts",
+        json={"concept_ids": [concept_id]},
+    )
+    assert create_resp.status_code == 201, create_resp.text
+    card = create_resp.json()[0]
+
+    review_resp = await client.post(
+        f"/api/flashcards/{card['id']}/review",
+        json={"rating": rating},
+    )
+
+    assert review_resp.status_code == 200, review_resp.text
+    reviewed = review_resp.json()
+    assert reviewed["id"] == card["id"]
+    assert reviewed["state"] == expected_state
+    assert reviewed["reps"] == 1
+    assert reviewed["lapses"] == expected_lapses
+    assert reviewed["last_review"] is not None
+    assert reviewed["scheduled_days"] == expected_scheduled_days
+
+    due_after_review = await client.get("/api/flashcards/due")
+    assert due_after_review.status_code == 200, due_after_review.text
+    due_ids = [item["id"] for item in due_after_review.json()]
+    if remains_due:
+        assert due_ids == [card["id"]]
+    else:
+        assert due_ids == []
+
+    logs = (await session.execute(select(ReviewLog))).scalars().all()
+    assert len(logs) == 1
+    assert logs[0].flashcard_id == card["id"]
+    assert logs[0].rating == rating.lower()
+    assert logs[0].scheduled_days == expected_scheduled_days
+
+
+@pytest.mark.parametrize(
     ("question_type", "wrong_text", "wrong_llm", "correct_text", "correct_llm"),
     [
         (QuestionType.FILL_BLANK, "细胞核", FEEDBACK, "类囊体膜", FEEDBACK),

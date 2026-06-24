@@ -1,6 +1,49 @@
-STATUS: IN PROGRESS
+STATUS: COMPLETE
 
 # Issue #21 - FSRS due-card review session
+
+## 2026-06-25 Ralph iteration 3
+
+Completed the final backend public API coverage increment for the review
+endpoint: Again, Hard, and Easy ratings now have explicit behavior tests through
+`POST /api/flashcards/{id}/review`, including response state, deterministic
+scheduled interval, due-list visibility, and `ReviewLog` persistence.
+
+## What changed
+
+- Added a parameterized public API test for the remaining review ratings.
+- Verified title-case `Again`/`Hard`/`Easy` inputs are accepted by the endpoint
+  and persisted as lowercase review log values.
+- Confirmed Again keeps a newly reviewed card due immediately while Hard and
+  Easy move the card out of the due queue with deterministic next intervals.
+- No product code change was required; the previous backend implementation
+  already satisfied the remaining rating behavior, but lacked explicit
+  acceptance coverage.
+
+## Verification
+
+- Coverage check: `uv run pytest backend/tests/test_flashcards_api.py -q`
+  - New public behavior test passed against existing implementation:
+    `8 passed, 7 warnings`
+- Related backend: `uv run pytest backend/tests/test_answer_api.py backend/tests/test_flashcards_api.py -q`
+  - `29 passed, 7 warnings`
+
+## Remaining acceptance items
+
+- None for issue #21. Due-card query, all four review ratings, review log
+  creation, deterministic card state/due updates, and the frontend flip/rate
+  flow are covered.
+- Packaged `py-fsrs` integration remains a future refinement outside this
+  issue's current local acceptance scope if the project chooses to add that
+  dependency.
+
+## Blockers
+
+- No blocker for issue #21.
+- Existing project-level SQLite migration caveat applies: old dev DB files made
+  before the #21 backend commit will not get new `flashcards` columns or
+  `review_logs` via `create_all`; delete/recreate the dev DB until Alembic is
+  introduced.
 
 ## 2026-06-25 Ralph iteration 2
 
