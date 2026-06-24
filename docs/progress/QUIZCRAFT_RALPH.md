@@ -7,16 +7,16 @@
 
 **STATUS: IN PROGRESS**
 
-- 当前切片：**Phase 1 切片 1.2（LLM 配置与出题增强）** —— 子系统 1 后端核心完成，进行中
-- 上一轮完成：切片 1.2 子系统 1 后端（LLM 配置加密存储 + GET/POST /api/settings/llm + 连通测试），新增 29 测（累计 100）
-- 下一步：切片 1.2 子系统 1 前端 Settings 页（打通"配置→测试"UI），或子系统 2 出题参数控制后端
+- 当前切片：**Phase 1 切片 1.2（LLM 配置与出题增强）** —— 子系统 1 后端 + 子系统 2 后端完成，进行中
+- 上一轮完成：切片 1.2 子系统 2 后端（出题参数 number/difficulty_range/question_types/chapter_scope/bloom_distribution + Bloom 四层 + POST body），新增 11 测（累计 111）
+- 下一步：子系统 1 前端 Settings 页（打通"配置→测试"UI），或子系统 3 简答评分后端（LLM mock 可测）
 
 ## 切片完成情况
 
 | 切片 | 状态 | progress 文件 | 备注 |
 |------|------|---------------|------|
 | 1.1 最小出题闭环 | COMPLETE | docs/progress/SLICE_1_1.md | 6 子系统全完成，后端 71 测 + 前端 21 测绿；真实 LLM/真实 PDF fixture 待 yufeng |
-| 1.2 LLM 配置与出题增强 | IN PROGRESS | docs/progress/SLICE_1_2.md | 子系统 1 后端完成（加密存储+API+连通测试，29 新测）；前端 + 子系统 2-6 待 |
+| 1.2 LLM 配置与出题增强 | IN PROGRESS | docs/progress/SLICE_1_2.md | 子系统 1 后端（加密存储+API+连通测试）+ 子系统 2 后端（出题参数控制+Bloom 四层，11 新测）完成；前端 + 子系统 3-6 待 |
 | 1.3 闪卡与 FSRS | 未开始 | — | 依赖 1.1+1.2 |
 | 1.4 DOCX 与分层解析 | 未开始 | — | 依赖 1.1+1.2 |
 | 1.5 自部署与离线 | 未开始 | — | 依赖 1.1-1.4 |
@@ -41,6 +41,14 @@
   GET/POST /api/settings/llm（脱敏读 + 加密写 + 立即连通测试）。真机冒烟发现 check_llm_connection 构造期
   ImportError 逃逸 → 500（SOCKS 代理环境），修复为 except Exception 全捕获降级 ok=False。
 
+### 切片 1.2 子系统 2（轮次 2）
+
+- 出题参数控制后端：`QuizGenerationRequest`（number / difficulty_range / question_types /
+  chapter_scope / bloom_distribution）+ `generate_quiz` 扩展（difficulty 过滤、number 截断）+
+  `filter_sections_by_scope` 纯函数（section_path 子串白名单）+ Bloom 完整四层（记忆/理解/应用/分析，
+  原仅记忆/理解）+ POST /api/documents/{id}/generate-quiz 接受可选 body（无 body 退回切片 1.1 默认）。
+  question_types 当前仅 multiple_choice（多题型生成与评分方式绑定，留子系统 3 简答评分配套）。
+
 ## Blockers（跨切片，待 yufeng 外部资源）
 
 - **真实 LLM key**：全部 LLM 调用用 MockLLMClient 覆盖；真实出题/反馈质量、Bloom 分布、干扰项是否真基于常见误解待 yufeng 真实 key 验证
@@ -48,6 +56,10 @@
 - **前端浏览器人机交互**：无 Playwright 自动化，待 yufeng `cd frontend && npm run dev` 实地验证
 - **SOCKS 代理环境**：openai SDK 构造 AsyncOpenAI 在带 SOCKS 代理的本机缺 socksio 会失败（测试已 monkeypatch 规避），真实部署需注意
 - **生产部署建表**：切片 1.1 用 `create_all`（单机原型），生产换 Alembic 迁移待 yufeng 决策（切片 1.5）
+- **ruff 离线不可用**：本机无 ruff 二进制，`uvx ruff` 因 pypi 网络超时下载失败。本轮手动按 ruff 风格
+  审查超长行（已确保无新引入的函数调用超长行；剩余超长行均为 docstring/注释/字符串字面量，ruff format
+  不拆，与原代码一致）。monitor 复跑 `uvx ruff format --check backend` 若失败多为网络问题非代码问题；
+  yufeng 可在有网环境 `uv tool install ruff` 后复验。
 
 ## 约定
 

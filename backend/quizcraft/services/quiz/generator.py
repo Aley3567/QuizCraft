@@ -73,7 +73,8 @@ class GeneratedQuestion:
 class QuizGenerationResult:
     concepts: list[GeneratedConcept]
     questions: list[GeneratedQuestion]
-    dropped_count: int = 0
+    dropped_count: int = 0  # 自评淘汰数
+    filtered_count: int = 0  # 子系统2：难度范围过滤掉的题数
 
 
 _FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL)
@@ -105,6 +106,18 @@ def _build_source_span(section: DocumentSection, source_text: str | None) -> dic
     }
 
 
+def filter_sections_by_scope(sections, chapter_scope: list[str] | None) -> list:
+    """按 section_path 子串白名单过滤分块（子系统2 chapter_scope）。
+
+    chapter_scope 为 None 或空列表 → 全部保留（不限章节）。
+    否则只保留 section_path 包含任一关键词的分块（子串匹配，如 "第2章" 命中 "第2章 光合作用"）。
+    duck-typed：Section ORM 与 SectionData 均有 section_path 属性。
+    """
+    if not chapter_scope:
+        return list(sections)
+    return [s for s in sections if any(kw in s.section_path for kw in chapter_scope)]
+
+
 async def generate_quiz(
     sections: list[DocumentSection],
     llm: LLMClient,
@@ -112,18 +125,30 @@ async def generate_quiz(
     concepts_per_section: int = 5,
     questions_per_concept: int = 2,
     self_eval_threshold: float | None = 0.6,
+    number: int | None = None,
+    difficulty_range: list[str] | None = None,
+    question_types: list[str] | None = None,
+    bloom_distribution: dict[str, float] | None = None,
 ) -> QuizGenerationResult:
-    """两步生成 + 可选自评。
+    """两步生成 + 可选自评 + 子系统2 出题参数控制。
 
     - self_eval_threshold=None：跳过自评，保留全部生成的题（self_eval_score=None）。
     - 否则对每道题调 LLM 自评，平均分 < 阈值的题被淘汰，dropped_count 计数。
     - LLM 输出解析失败时跳过对应分块/概念/题目，不中断整体流程。
     - 自评解析失败时保守保留题目（不打分），避免因自评抖动丢弃已生成内容。
+    - 子系统2 参数：
+      - number：目标题数，自评后截断保留高分题（None 不限）。
+      - difficulty_range：允许的难度集合，自评前剔除不在范围的题（filtered_count 计数）。
+      - question_types / bloom_distribution：透传 prompt 约束 LLM（题型生成当前仅 multiple_choice）。
     """
     # Step1：逐分块提取概念
     concepts: list[GeneratedConcept] = []
     for idx, section in enumerate(sections):
-        resp = await llm.complete(build_step1_messages(section, n=concepts_per_section))
+        resp = await llm.complete(
+            build_step1_messages(
+                section, n=concepts_per_section, bloom_distribution=bloom_distribution
+            )
+        )
         try:
             data = _extract_json(resp.content)
         except (ValueError, json.JSONDecodeError):
@@ -146,7 +171,16 @@ async def generate_quiz(
     raw_questions: list[GeneratedQuestion] = []
     for ci, concept in enumerate(concepts):
         section = sections[concept.section_index]
-        resp = await llm.complete(build_step2_messages(concept, section, n=questions_per_concept))
+        resp = await llm.complete(
+            build_step2_messages(
+                concept,
+                section,
+                n=questions_per_concept,
+                difficulty_range=difficulty_range,
+                question_types=question_types,
+                bloom_distribution=bloom_distribution,
+            )
+        )
         try:
             data = _extract_json(resp.content)
         except (ValueError, json.JSONDecodeError):
@@ -170,28 +204,48 @@ async def generate_quiz(
             except (KeyError, TypeError):
                 continue
 
-    # Step3：简化自评（可选）
-    if self_eval_threshold is None:
-        return QuizGenerationResult(
-            concepts=concepts, questions=raw_questions, dropped_count=0
-        )
+    # 子系统2：difficulty_range 过滤（自评前剔除，避免对不要的题浪费 LLM 自评调用）
+    filtered_count = 0
+    if difficulty_range:
+        allowed = {d.lower() for d in difficulty_range}
+        kept_after_diff: list[GeneratedQuestion] = []
+        for question in raw_questions:
+            if question.difficulty and question.difficulty.lower() in allowed:
+                kept_after_diff.append(question)
+            else:
+                filtered_count += 1
+        candidates = kept_after_diff
+    else:
+        candidates = raw_questions
 
+    # Step3：简化自评（可选）
     kept: list[GeneratedQuestion] = []
     dropped = 0
-    for question in raw_questions:
-        section = sections[question.section_index]
-        resp = await llm.complete(build_eval_messages(question, section_content=section.content))
-        try:
-            data = _extract_json(resp.content)
-            score = (float(data["accuracy"]) + float(data["source_grounding"])) / 2
-        except (ValueError, KeyError, TypeError, json.JSONDecodeError):
-            question.self_eval_score = None
+    if self_eval_threshold is None:
+        kept = list(candidates)
+    else:
+        for question in candidates:
+            section = sections[question.section_index]
+            resp = await llm.complete(
+                build_eval_messages(question, section_content=section.content)
+            )
+            try:
+                data = _extract_json(resp.content)
+                score = (float(data["accuracy"]) + float(data["source_grounding"])) / 2
+            except (ValueError, KeyError, TypeError, json.JSONDecodeError):
+                question.self_eval_score = None
+                kept.append(question)
+                continue
+            if score < self_eval_threshold:
+                dropped += 1
+                continue
+            question.self_eval_score = score
             kept.append(question)
-            continue
-        if score < self_eval_threshold:
-            dropped += 1
-            continue
-        question.self_eval_score = score
-        kept.append(question)
 
-    return QuizGenerationResult(concepts=concepts, questions=kept, dropped_count=dropped)
+    # 子系统2：number 截断（自评后截断，保留高分题）
+    if number is not None and len(kept) > number:
+        kept = kept[:number]
+
+    return QuizGenerationResult(
+        concepts=concepts, questions=kept, dropped_count=dropped, filtered_count=filtered_count
+    )

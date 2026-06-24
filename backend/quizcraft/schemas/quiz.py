@@ -91,3 +91,24 @@ class AnswerOut(BaseModel):
     selected_option_index: int | None
     is_correct: bool | None
     feedback: str | None
+
+
+class QuizGenerationRequest(BaseModel):
+    """出题参数控制（切片 1.2 子系统 2）。
+
+    所有字段可选，缺省时退回默认行为（与切片 1.1 无 body 调用兼容）：
+    - number：目标题数，自评后截断保留高分题（None 不限）
+    - difficulty_range：允许的难度集合（如 ["easy","medium"]），None=不限
+    - question_types：题型，当前仅 multiple_choice（判断/填空/简答留后续子系统配套评分方式）
+    - chapter_scope：section_path 子串白名单，None=全部章节
+    - bloom_distribution：Bloom 层级 → 比例，如 {"记忆": 0.4, "应用": 0.2, ...}
+    - concepts_per_section / questions_per_concept：底层出题密度旋钮
+    """
+
+    number: int | None = None
+    difficulty_range: list[str] | None = None
+    question_types: list[str] | None = None
+    chapter_scope: list[str] | None = None
+    bloom_distribution: dict[str, float] | None = None
+    concepts_per_section: int = 5
+    questions_per_concept: int = 2

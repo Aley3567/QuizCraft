@@ -71,3 +71,42 @@ def test_eval_prompt_scores_two_dimensions():
     assert "source_grounding" in blob
     assert "JSON" in blob
     assert "光反应发生在？" in msgs[1].content
+
+
+def test_step1_prompt_supports_four_bloom_levels():
+    """子系统2：Step1 prompt 支持完整 Bloom 四层（记忆/理解/应用/分析），不再只限记忆/理解。"""
+    msgs = build_step1_messages(_section(), n=5)
+    blob = msgs[0].content + msgs[1].content
+    for level in ("记忆", "理解", "应用", "分析"):
+        assert level in blob
+
+
+def test_step2_prompt_constrains_difficulty_range():
+    """子系统2：difficulty_range 传入后，Step2 prompt 约束 LLM 只用指定难度（含"只能取" + 指定值）。"""
+    concept = SimpleNamespace(name="光合作用", description="植物利用光能合成有机物")
+    msgs = build_step2_messages(concept, _section(), n=2, difficulty_range=["easy", "medium"])
+    blob = msgs[0].content + msgs[1].content
+    assert "easy" in blob
+    assert "medium" in blob
+    assert "只能取" in blob
+
+
+def test_step2_prompt_conveys_bloom_distribution():
+    """子系统2：bloom_distribution 传入后，Step2 prompt 体现分布比例与四层 Bloom。"""
+    concept = SimpleNamespace(name="光合作用", description="植物利用光能合成有机物")
+    dist = {"记忆": 0.4, "理解": 0.3, "应用": 0.2, "分析": 0.1}
+    msgs = build_step2_messages(concept, _section(), n=2, bloom_distribution=dist)
+    blob = msgs[0].content + msgs[1].content
+    assert "记忆" in blob
+    assert "应用" in blob
+    assert "分析" in blob
+    assert "40%" in blob  # 分布比例（0.4 → 40%）
+
+
+def test_step2_prompt_default_includes_four_bloom_levels():
+    """子系统2：默认（无 distribution）Step2 prompt 仍含完整四层 Bloom 可选层级。"""
+    concept = SimpleNamespace(name="光合作用", description="植物利用光能合成有机物")
+    msgs = build_step2_messages(concept, _section(), n=2)
+    blob = msgs[0].content + msgs[1].content
+    for level in ("记忆", "理解", "应用", "分析"):
+        assert level in blob

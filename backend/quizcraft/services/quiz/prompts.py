@@ -17,13 +17,32 @@ from __future__ import annotations
 from quizcraft.services.llm.base import Message
 
 
-def build_step1_messages(section, *, n: int = 5) -> list[Message]:
-    """Step1：从文档分块提取 n 个核心学习概念，每个带文档原文 source_text。"""
+def _fmt_list(items: list[str]) -> str:
+    """把 ['easy','medium'] 格式化为 '"easy" 或 "medium"'，用于 prompt 枚举列举。"""
+    return " 或 ".join(f'"{i}"' for i in items)
+
+
+def _fmt_dist(dist: dict[str, float]) -> str:
+    """把 {'记忆':0.4,...} 格式化为 '记忆 40%、理解 30%...'，用于 prompt 分布约束。"""
+    return "、".join(f"{k} {int(round(v * 100))}%" for k, v in dist.items())
+
+
+def build_step1_messages(section, *, n: int = 5, bloom_distribution: dict | None = None) -> list[Message]:
+    """Step1：从文档分块提取 n 个核心学习概念，每个带文档原文 source_text。
+
+    子系统2：Bloom 扩展到完整四层（记忆/理解/应用/分析）；可选 bloom_distribution 约束概念层级分布。
+    """
+    bloom_clause = (
+        f"概念层级分布应大致符合：{_fmt_dist(bloom_distribution)}。\n"
+        if bloom_distribution
+        else ""
+    )
     system = (
         "你是学习材料分析专家。从给定的文档片段中提取核心学习概念（定义、关键术语、重要原理）。\n"
         f"提取 {n} 个左右核心概念，每个概念必须附带文档中的原文片段用于溯源。\n"
-        'bloom_level 只能取 "记忆" 或 "理解"。\n'
-        "严格只返回 JSON，不要输出任何解释或额外文字，格式：\n"
+        'bloom_level 只能取 "记忆"、"理解"、"应用" 或 "分析"。\n'
+        + bloom_clause
+        + "严格只返回 JSON，不要输出任何解释或额外文字，格式：\n"
         '{"concepts": [{"name": "概念名", "description": "简短描述", '
         '"bloom_level": "记忆", "source_text": "文档中的原文片段"}]}'
     )
@@ -34,14 +53,43 @@ def build_step1_messages(section, *, n: int = 5) -> list[Message]:
     return [Message(role="system", content=system), Message(role="user", content=user)]
 
 
-def build_step2_messages(concept, section, *, n: int = 2) -> list[Message]:
-    """Step2：基于概念 + 文档原文生成 n 道单选题，干扰项基于常见误解，每题带 source_text。"""
+def build_step2_messages(
+    concept,
+    section,
+    *,
+    n: int = 2,
+    difficulty_range: list[str] | None = None,
+    question_types: list[str] | None = None,
+    bloom_distribution: dict | None = None,
+) -> list[Message]:
+    """Step2：基于概念 + 文档原文生成 n 道单选题，干扰项基于常见误解，每题带 source_text。
+
+    子系统2 出题参数控制：
+    - difficulty_range：约束难度取值（prompt 显式列举允许难度，其余禁用）
+    - question_types：题型约束（当前仅 multiple_choice；其他题型生成留后续子系统配套评分方式）
+    - bloom_distribution：题目 Bloom 分布比例
+    - Bloom 完整四层（记忆/理解/应用/分析），并要求 explanation 开头简述为何定为该层级
+    """
+    diff_clause = (
+        f"difficulty 只能取 {_fmt_list(difficulty_range)}（不得取其他难度）。\n"
+        if difficulty_range
+        else 'difficulty 取 "easy"、"medium" 或 "hard"。\n'
+    )
+    qt_clause = f"题型限定：{_fmt_list(question_types)}。\n" if question_types else ""
+    bloom_dist_clause = (
+        f"题目 Bloom 层级分布应大致符合：{_fmt_dist(bloom_distribution)}；\n"
+        if bloom_distribution
+        else ""
+    )
     system = (
         "你是出题专家。基于给定概念和文档原文，生成单选题。\n"
         f"生成 {n} 道题，每题恰好 4 个选项，干扰项要基于常见误解而不是随机错误。\n"
+        + qt_clause
+        + diff_clause
+        + bloom_dist_clause
+        + 'bloom_level 取 "记忆"、"理解"、"应用" 或 "分析"，并在 explanation 开头简述为何定为该层级。\n'
         "correct_option_index 是正确答案在 options 中的下标（0-3）。\n"
         "每题必须附带文档原文 source_text（必须来自给定文档片段）。\n"
-        'bloom_level 取 "记忆" 或 "理解"；difficulty 取 "easy"、"medium" 或 "hard"。\n'
         "严格只返回 JSON，不要输出任何解释或额外文字，格式：\n"
         '{"questions": [{"stem": "题干", "options": ["选项A", "选项B", "选项C", "选项D"], '
         '"correct_option_index": 0, "explanation": "解析", "bloom_level": "记忆", '

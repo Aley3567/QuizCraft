@@ -145,3 +145,65 @@ async def test_empty_sections_returns_empty():
     result = await generate_quiz([], MockLLMClient(), self_eval_threshold=None)
     assert result.concepts == []
     assert result.questions == []
+
+
+async def test_difficulty_filter_drops_unwanted_difficulty():
+    """子系统2：difficulty_range 过滤掉不在范围内的题，filtered_count 计数。"""
+    step2_medium = (
+        '{"questions": [{"stem": "题", "options": ["a", "b", "c", "d"], '
+        '"correct_option_index": 0, "explanation": "", "bloom_level": "记忆", '
+        '"difficulty": "medium", "source_text": "光反应发生在类囊体膜上。"}]}'
+    )
+    result = await generate_quiz(
+        [SECTION],
+        MockLLMClient(responses=[STEP1_JSON, step2_medium]),
+        self_eval_threshold=None,
+        difficulty_range=["easy"],
+    )
+    assert len(result.questions) == 0
+    assert result.filtered_count == 1
+
+
+async def test_number_truncates_to_target():
+    """子系统2：number 截断生成题数到目标值（自评后截断，保留高分题）。"""
+    step2_two = (
+        '{"questions": ['
+        '{"stem": "题1", "options": ["a", "b", "c", "d"], "correct_option_index": 0, '
+        '"explanation": "", "bloom_level": "记忆", "difficulty": "easy", '
+        '"source_text": "光反应发生在类囊体膜上。"}, '
+        '{"stem": "题2", "options": ["a", "b", "c", "d"], "correct_option_index": 0, '
+        '"explanation": "", "bloom_level": "理解", "difficulty": "easy", '
+        '"source_text": "光反应发生在类囊体膜上。"}'
+        "]}"
+    )
+    result = await generate_quiz(
+        [SECTION],
+        MockLLMClient(responses=[STEP1_JSON, step2_two]),
+        self_eval_threshold=None,
+        number=1,
+    )
+    assert len(result.questions) == 1
+
+
+def test_filter_sections_by_scope_substring_match():
+    """子系统2：chapter_scope 按 section_path 子串白名单过滤分块；None/空=全部保留。"""
+    from quizcraft.services.quiz.generator import filter_sections_by_scope
+
+    s1 = SectionData(section_path="第1章 绪论", page_number=1, content="x", token_count=5, order_index=0)
+    s2 = SectionData(section_path="第2章 光合作用", page_number=5, content="y", token_count=5, order_index=1)
+    s3 = SectionData(section_path="第3章 呼吸作用", page_number=9, content="z", token_count=5, order_index=2)
+    kept = filter_sections_by_scope([s1, s2, s3], ["第2章"])
+    assert [s.section_path for s in kept] == ["第2章 光合作用"]
+    assert len(filter_sections_by_scope([s1, s2], None)) == 2
+    assert len(filter_sections_by_scope([s1, s2], [])) == 2
+
+
+def test_filter_sections_by_scope_multiple_keywords():
+    """子系统2：多个章节关键词任一匹配即纳入。"""
+    from quizcraft.services.quiz.generator import filter_sections_by_scope
+
+    s1 = SectionData(section_path="第1章 绪论", page_number=1, content="x", token_count=5, order_index=0)
+    s2 = SectionData(section_path="第2章 光合作用", page_number=5, content="y", token_count=5, order_index=1)
+    s3 = SectionData(section_path="第3章 呼吸作用", page_number=9, content="z", token_count=5, order_index=2)
+    kept = filter_sections_by_scope([s1, s2, s3], ["第1章", "第3章"])
+    assert [s.section_path for s in kept] == ["第1章 绪论", "第3章 呼吸作用"]

@@ -103,3 +103,79 @@ async def test_generated_question_correct_answer_persisted(session, client, llm_
     ).scalar_one()
     assert q.correct_option_index == 1
     assert q.source_span["text"] == "光反应发生在类囊体膜上。"
+
+
+async def test_generate_quiz_with_number_param(session, client, llm_mock):
+    """子系统2：POST body 传 number → 生成题数截断到 number。"""
+    doc_id = await _seed_document(session)
+    step2_two = (
+        '{"questions": ['
+        '{"stem": "题1", "options": ["细胞核", "类囊体膜", "细胞壁", "液泡"], '
+        '"correct_option_index": 1, "explanation": "", "bloom_level": "记忆", '
+        '"difficulty": "easy", "source_text": "光反应发生在类囊体膜上。"}, '
+        '{"stem": "题2", "options": ["细胞核", "类囊体膜", "细胞壁", "液泡"], '
+        '"correct_option_index": 1, "explanation": "", "bloom_level": "理解", '
+        '"difficulty": "easy", "source_text": "光反应发生在类囊体膜上。"}'
+        "]}"
+    )
+    llm_mock.set_responses([STEP1, step2_two, EVAL_HIGH])
+    resp = await client.post(f"/api/documents/{doc_id}/generate-quiz", json={"number": 1})
+    assert resp.status_code == HTTP_201_CREATED, resp.text
+    assert len(resp.json()["questions"]) == 1
+
+
+async def test_generate_quiz_unsupported_question_type_400(session, client, llm_mock):
+    """子系统2：question_types 含暂不支持的题型 → 400（当前仅 multiple_choice）。"""
+    doc_id = await _seed_document(session)
+    llm_mock.set_responses([])
+    resp = await client.post(
+        f"/api/documents/{doc_id}/generate-quiz",
+        json={"question_types": ["true_false"]},
+    )
+    assert resp.status_code == 400
+    assert "multiple_choice" in resp.text
+
+
+async def test_generate_quiz_with_chapter_scope_filters_sections(session, client, llm_mock):
+    """子系统2：chapter_scope 按 section_path 子串过滤出题范围（只对匹配分块出题）。"""
+    doc = Document(filename="lecture.pdf", page_count=1, status=DocumentStatus.COMPLETE)
+    session.add(doc)
+    await session.flush()
+    s1 = Section(
+        document_id=doc.id,
+        section_path="第1章 绪论",
+        page_number=1,
+        content="绪论内容",
+        order_index=0,
+        token_count=10,
+    )
+    s2 = Section(
+        document_id=doc.id,
+        section_path="第2章 光合作用",
+        page_number=5,
+        content="光合作用内容",
+        order_index=1,
+        token_count=10,
+    )
+    session.add_all([s1, s2])
+    await session.commit()
+
+    step1 = (
+        '{"concepts": [{"name": "概念", "description": "", "bloom_level": "记忆", '
+        '"source_text": "光合作用内容"}]}'
+    )
+    step2 = (
+        '{"questions": [{"stem": "题", "options": ["a", "b", "c", "d"], '
+        '"correct_option_index": 0, "explanation": "", "bloom_level": "记忆", '
+        '"difficulty": "easy", "source_text": "光合作用内容"}]}'
+    )
+    llm_mock.set_responses([step1, step2, EVAL_HIGH])
+
+    resp = await client.post(
+        f"/api/documents/{doc.id}/generate-quiz",
+        json={"chapter_scope": ["第2章"]},
+    )
+    assert resp.status_code == HTTP_201_CREATED, resp.text
+    q = resp.json()["questions"][0]
+    assert q["source_span"]["section_path"] == "第2章 光合作用"
+    assert q["source_span"]["page"] == 5

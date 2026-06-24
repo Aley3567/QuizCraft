@@ -7,7 +7,7 @@ POST /api/documents/{id}/generate-quiz：两步生成 + 简化自评，
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,22 +17,31 @@ from quizcraft.models.quiz import Question, QuestionType, QuizSession, SessionSt
 from quizcraft.schemas.quiz import (
     ConceptOut,
     QuestionOut,
+    QuizGenerationRequest,
     QuizGenerationResponse,
     QuizSessionOut,
 )
 from quizcraft.services.llm import LLMClient
-from quizcraft.services.quiz import generate_quiz
+from quizcraft.services.quiz import filter_sections_by_scope, generate_quiz
 
 router = APIRouter(prefix="/api/documents", tags=["quiz"])
+
+# 子系统2：当前仅支持选择题；判断/填空/简答的生成留后续子系统配套评分方式
+SUPPORTED_QUESTION_TYPES = {QuestionType.MULTIPLE_CHOICE.value}
 
 
 @router.post("/{document_id}/generate-quiz", response_model=QuizGenerationResponse, status_code=201)
 async def generate_quiz_for_document(
     document_id: int,
+    body: QuizGenerationRequest | None = Body(default=None),
     session: AsyncSession = Depends(get_session),
     llm: LLMClient = Depends(get_llm_client),
 ) -> QuizGenerationResponse:
-    """对文档执行两步出题 + 自评，落库并返回新答题会话。"""
+    """对文档执行两步出题 + 自评，落库并返回新答题会话。
+
+    子系统2：可选 body 传入出题参数（number/difficulty_range/question_types/
+    chapter_scope/bloom_distribution）；无 body 时退回默认（切片 1.1 行为）。
+    """
     doc = await session.get(Document, document_id)
     if doc is None:
         raise HTTPException(status_code=404, detail="文档不存在")
@@ -46,7 +55,35 @@ async def generate_quiz_for_document(
     if not sections:
         raise HTTPException(status_code=400, detail="文档无可出题的分块")
 
-    gen = await generate_quiz(sections, llm)
+    params = body or QuizGenerationRequest()
+
+    # question_types 校验（调 LLM 前，避免无谓出题）
+    if params.question_types:
+        unsupported = set(params.question_types) - SUPPORTED_QUESTION_TYPES
+        if unsupported:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"暂不支持题型: {sorted(unsupported)}（当前仅 multiple_choice；"
+                    "判断/填空/简答留待后续子系统）"
+                ),
+            )
+
+    # chapter_scope 按 section_path 子串过滤出题范围
+    sections = filter_sections_by_scope(sections, params.chapter_scope)
+    if not sections:
+        raise HTTPException(status_code=400, detail="章节范围内无可出题的分块")
+
+    gen = await generate_quiz(
+        sections,
+        llm,
+        concepts_per_section=params.concepts_per_section,
+        questions_per_concept=params.questions_per_concept,
+        number=params.number,
+        difficulty_range=params.difficulty_range,
+        question_types=params.question_types,
+        bloom_distribution=params.bloom_distribution,
+    )
 
     # 落库 Concepts（保留 ORM 引用，供 Question 外键与响应回填）
     concept_orm: list[Concept] = []

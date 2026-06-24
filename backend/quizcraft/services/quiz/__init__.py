@@ -3,6 +3,7 @@ from quizcraft.services.quiz.generator import (
     GeneratedConcept,
     GeneratedQuestion,
     QuizGenerationResult,
+    filter_sections_by_scope,
     generate_quiz,
 )
 from quizcraft.services.quiz.prompts import (
@@ -18,5 +19,6 @@ __all__ = [
     "build_eval_messages",
     "build_step1_messages",
     "build_step2_messages",
+    "filter_sections_by_scope",
     "generate_quiz",
 ]
