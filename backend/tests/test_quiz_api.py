@@ -231,3 +231,20 @@ async def test_generate_quiz_with_chapter_scope_filters_sections(session, client
     q = resp.json()["questions"][0]
     assert q["source_span"]["section_path"] == "第2章 光合作用"
     assert q["source_span"]["page"] == 5
+
+
+async def test_generate_quiz_self_eval_threshold_configurable(session, client, llm_mock):
+    """子系统6：出题参数 self_eval_threshold 可配；调高阈值使原本保留的题被淘汰。"""
+    doc_id = await _seed_document(session)
+    # EVAL_HIGH 2 维平均 0.9，默认阈值（2/3≈0.667）会保留；传 0.95 → 0.9 < 0.95 → 淘汰
+    llm_mock.set_responses([STEP1, STEP2, EVAL_HIGH])
+
+    resp = await client.post(
+        f"/api/documents/{doc_id}/generate-quiz",
+        json={"self_eval_threshold": 0.95},
+    )
+
+    assert resp.status_code == HTTP_201_CREATED, resp.text
+    body = resp.json()
+    assert body["quiz_session"]["total"] == 0  # 题被自评淘汰
+    assert len(body["questions"]) == 0

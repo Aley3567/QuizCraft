@@ -32,6 +32,17 @@ STEP2_JSON = (
 EVAL_HIGH = '{"accuracy": 0.9, "source_grounding": 0.9}'
 EVAL_LOW = '{"accuracy": 0.2, "source_grounding": 0.3}'
 
+# 子系统6：完整 6 维自评 mock 响应（accuracy/clarity/difficulty/source_grounding/
+# non_trivial/non_ambiguous，各 0-1）。HIGH 平均 0.85（总分 5.1），LOW 平均 0.5（总分 3.0 < 4）。
+EVAL_SIX_HIGH = (
+    '{"accuracy": 0.9, "clarity": 0.8, "difficulty": 0.8, '
+    '"source_grounding": 0.9, "non_trivial": 0.8, "non_ambiguous": 0.9}'
+)
+EVAL_SIX_LOW = (
+    '{"accuracy": 0.5, "clarity": 0.5, "difficulty": 0.5, '
+    '"source_grounding": 0.5, "non_trivial": 0.5, "non_ambiguous": 0.5}'
+)
+
 
 async def test_step1_extracts_concepts_with_source_span():
     """Step1：LLM 返回 concepts JSON，generator 提取概念并补全 source_span（page/section_path/text）。"""
@@ -283,3 +294,57 @@ async def test_short_answer_respects_difficulty_range():
     )
     assert len(result.questions) == 0
     assert result.filtered_count == 1
+
+
+async def test_self_eval_six_dimensions_keeps_high():
+    """子系统6：6 维自评平均 >= 阈值 → 保留题目，记录各维度 self_eval_scores 明细。"""
+    result = await generate_quiz(
+        [SECTION],
+        MockLLMClient(responses=[STEP1_JSON, STEP2_JSON, EVAL_SIX_HIGH]),
+        self_eval_threshold=2 / 3,
+    )
+    assert len(result.questions) == 1
+    q = result.questions[0]
+    assert q.self_eval_score == pytest.approx(0.85)
+    assert q.self_eval_scores is not None
+    assert set(q.self_eval_scores.keys()) == {
+        "accuracy",
+        "clarity",
+        "difficulty",
+        "source_grounding",
+        "non_trivial",
+        "non_ambiguous",
+    }
+    assert q.self_eval_scores["accuracy"] == pytest.approx(0.9)
+
+
+async def test_self_eval_six_dimensions_drops_below_threshold():
+    """子系统6：6 维自评平均 < 阈值（等价 6 维总分 < 4）→ 题目被淘汰。"""
+    result = await generate_quiz(
+        [SECTION],
+        MockLLMClient(responses=[STEP1_JSON, STEP2_JSON, EVAL_SIX_LOW]),
+        self_eval_threshold=2 / 3,
+    )
+    assert len(result.questions) == 0
+    assert result.dropped_count == 1
+
+
+async def test_self_eval_partial_dimensions_back_compatible():
+    """子系统6：LLM 只返回部分维度（旧 2 维 EVAL_HIGH）→ 按存在维度平均，向后兼容不破坏。"""
+    result = await generate_quiz(
+        [SECTION],
+        MockLLMClient(responses=[STEP1_JSON, STEP2_JSON, EVAL_HIGH]),
+        self_eval_threshold=2 / 3,
+    )
+    assert len(result.questions) == 1
+    assert result.questions[0].self_eval_score == pytest.approx(0.9)
+
+
+async def test_self_eval_default_threshold_drops_below_four():
+    """子系统6：默认阈值 = 2/3（等价 6 维总分 4）；6 维总分 3.0 < 4 → 默认行为淘汰。"""
+    result = await generate_quiz(
+        [SECTION],
+        MockLLMClient(responses=[STEP1_JSON, STEP2_JSON, EVAL_SIX_LOW]),
+    )
+    assert result.dropped_count == 1
+    assert len(result.questions) == 0

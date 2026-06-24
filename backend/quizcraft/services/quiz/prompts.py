@@ -3,7 +3,7 @@
 对齐 DESIGN_DECISIONS 4.2：
 - 来源锚定：每题/每概念必须引用文档原文 source_text，供错题反馈溯源
 - 错误选项基于常见误解，不是随机错误
-- 简化自我批评：只评 accuracy + source-grounding（完整 6 维度延后到切片 1.2）
+- 完整 6 维自我批评（子系统6）：评 accuracy/clarity/difficulty/source-grounding/non-trivial/non-ambiguous
 
 要求 LLM 严格只返回 JSON，由 generator 解析容错（markdown fence / 前后噪声）。
 
@@ -105,20 +105,39 @@ def build_step2_messages(
 
 
 def build_eval_messages(question, *, section_content: str) -> list[Message]:
-    """简化自评：评估题目 accuracy（答案/解释正确性）与 source-grounding（是否真基于文档原文）。"""
+    """完整 6 维自评（子系统6）：评估题目质量 6 个维度，各 0-1 浮点。
+
+    维度（对齐 SLICE_PHASE_1.md 切片 1.2 子系统 6）：
+    - accuracy：题目答案与解释是否正确无误
+    - clarity：题干表述是否清晰易懂
+    - difficulty：难度是否与标注 difficulty 一致
+    - source_grounding：source_text 是否真来自给定文档原文（题目是否真实锚定文档）
+    - non_trivial：题目是否非琐碎送分（有一定区分度）
+    - non_ambiguous：题目是否有唯一明确正确答案（无歧义）
+
+    generator 解析时对返回中实际存在的维度取平均（向后兼容旧 2 维响应）。
+    difficulty 字段用 getattr 安全访问，兼容不含该属性的 duck-typed question。
+    """
     options_text = "\n".join(f"{i}. {o}" for i, o in enumerate(question.options))
+    difficulty_label = getattr(question, "difficulty", None) or ""
     system = (
-        "你是出题质量审核员。只评估以下两个维度（各 0-1 浮点数）：\n"
+        "你是出题质量审核员。只评估以下 6 个维度（各 0-1 浮点数）：\n"
         "- accuracy：题目答案与解释是否正确无误\n"
+        "- clarity：题干表述是否清晰易懂\n"
+        "- difficulty：难度是否与标注的 difficulty 一致\n"
         "- source_grounding：source_text 是否真的来自给定文档原文（即题目是否真实锚定文档）\n"
+        "- non_trivial：题目是否非琐碎送分（有一定区分度）\n"
+        "- non_ambiguous：题目是否有唯一明确正确答案（无歧义）\n"
         "严格只返回 JSON，不要输出任何解释或额外文字，格式：\n"
-        '{"accuracy": 0.9, "source_grounding": 0.8}'
+        '{"accuracy": 0.9, "clarity": 0.8, "difficulty": 0.8, '
+        '"source_grounding": 0.9, "non_trivial": 0.7, "non_ambiguous": 0.9}'
     )
     user = (
         f"题干：{question.stem}\n"
         f"选项：\n{options_text}\n"
         f"正确答案下标：{question.correct_option_index}\n"
         f"解析：{question.explanation or ''}\n"
+        f"标注难度：{difficulty_label}\n"
         f"题目声称的文档原文：{question.source_span.get('text', '')}\n"
         f"实际文档片段：\n{section_content}"
     )

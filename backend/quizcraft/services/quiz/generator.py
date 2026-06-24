@@ -3,8 +3,9 @@
 两步生成法（对齐 DESIGN_DECISIONS 4.2）：
 - Step1：LLM 从每个文档分块提取 Concepts，带 source_span（{page, section_path, text}）
 - Step2：LLM 对每个 Concept 生成选择题（Bloom 记忆/理解层），每题带 source_span 引用原文
-- 简化自评：LLM 对每道题评 accuracy + source-grounding，平均分低于阈值的题被淘汰
-  （完整 6 维度 + 可配阈值延后到切片 1.2）
+- 完整 6 维自评（子系统6）：LLM 对每道选择题评 accuracy/clarity/difficulty/source-grounding/
+  non-trivial/non-ambiguous，按返回中存在的维度取平均，低于阈值的题被淘汰（默认 2/3≈0.667，
+  等价总分 4；可经由 router 透传 self_eval_threshold 覆盖）
 
 纯逻辑，不碰 DB：输入文档分块 + LLM client，输出结构化 Concepts/Questions。
 落库与 source_span 之外的 section/concept 外键关联由 router 负责——
@@ -72,6 +73,9 @@ class GeneratedQuestion:
     question_type: str = "multiple_choice"
     answer_text: str | None = None
     self_eval_score: float | None = None
+    # 子系统6：6 维自评各维度明细（accuracy/clarity/difficulty/source_grounding/non_trivial/
+    # non_ambiguous），仅生成期内存，不落库；self_eval_score 为其平均（落库）。
+    self_eval_scores: dict | None = None
 
 
 @dataclass
@@ -100,6 +104,35 @@ def _extract_json(content: str) -> dict:
     if start == -1 or end == -1 or end <= start:
         raise ValueError("LLM 返回中未找到 JSON 对象")
     return json.loads(text[start : end + 1])
+
+
+# 子系统6：完整 6 维自评维度（对齐 SLICE_PHASE_1.md 切片 1.2 子系统 6）
+SELF_EVAL_DIMENSIONS = (
+    "accuracy",
+    "clarity",
+    "difficulty",
+    "source_grounding",
+    "non_trivial",
+    "non_ambiguous",
+)
+
+
+def _compute_self_eval_score(data: dict) -> tuple[float | None, dict | None]:
+    """从 LLM 自评响应取存在的维度平均，返回 (score, scores)。
+
+    向后兼容：LLM 只返回部分维度（如旧 accuracy + source_grounding）时按存在维度平均；
+    一个有效维度都没有 → (None, None)，调用方保守保留题目不打分（不因自评抖动丢弃内容）。
+    """
+    scores: dict[str, float] = {}
+    for dim in SELF_EVAL_DIMENSIONS:
+        if dim in data:
+            try:
+                scores[dim] = float(data[dim])
+            except (TypeError, ValueError):
+                continue
+    if not scores:
+        return None, None
+    return sum(scores.values()) / len(scores), scores
 
 
 def _build_source_span(section: DocumentSection, source_text: str | None) -> dict:
@@ -168,7 +201,8 @@ async def generate_quiz(
     *,
     concepts_per_section: int = 5,
     questions_per_concept: int = 2,
-    self_eval_threshold: float | None = 0.6,
+    # 子系统6：默认 2/3（≈0.667），等价 6 维总分 4 淘汰（对齐 PRD「默认 <4 分淘汰」）
+    self_eval_threshold: float | None = 2 / 3,
     number: int | None = None,
     difficulty_range: list[str] | None = None,
     question_types: list[str] | None = None,
@@ -177,9 +211,11 @@ async def generate_quiz(
     """两步生成 + 可选自评 + 子系统2 出题参数控制。
 
     - self_eval_threshold=None：跳过自评，保留全部生成的题（self_eval_score=None）。
-    - 否则对每道题调 LLM 自评，平均分 < 阈值的题被淘汰，dropped_count 计数。
+    - 否则对每道选择题调 LLM 做 6 维自评（accuracy/clarity/difficulty/source_grounding/
+      non_trivial/non_ambiguous），按返回中存在的维度取平均，< 阈值的题被淘汰，dropped_count 计数。
+      默认 2/3（≈0.667），等价 6 维总分 4 淘汰（对齐 PRD「默认 <4 分淘汰」，可经由 router 透传覆盖）。
     - LLM 输出解析失败时跳过对应分块/概念/题目，不中断整体流程。
-    - 自评解析失败时保守保留题目（不打分），避免因自评抖动丢弃已生成内容。
+    - 自评解析失败或一个有效维度都没有时保守保留题目（不打分），避免因自评抖动丢弃已生成内容。
     - 子系统2 参数：
       - number：目标题数，自评后截断保留高分题（None 不限）。
       - difficulty_range：允许的难度集合，自评前剔除不在范围的题（filtered_count 计数）。
@@ -264,7 +300,7 @@ async def generate_quiz(
     else:
         candidates = raw_questions
 
-    # Step3：简化自评（可选，仅选择题；简答题评分在答题时由 LLM rubric 完成）
+    # Step3：完整 6 维自评（子系统6；可选，仅选择题；简答题评分在答题时由 LLM rubric 完成）
     kept: list[GeneratedQuestion] = []
     dropped = 0
     if self_eval_threshold is None:
@@ -274,6 +310,7 @@ async def generate_quiz(
             if question.question_type == "short_answer":
                 # 简答题跳过生成期自评：无选项可评，评分延后到答题时
                 question.self_eval_score = None
+                question.self_eval_scores = None
                 kept.append(question)
                 continue
             section = sections[question.section_index]
@@ -282,15 +319,23 @@ async def generate_quiz(
             )
             try:
                 data = _extract_json(resp.content)
-                score = (float(data["accuracy"]) + float(data["source_grounding"])) / 2
+                score, scores = _compute_self_eval_score(data)
             except (ValueError, KeyError, TypeError, json.JSONDecodeError):
                 question.self_eval_score = None
+                question.self_eval_scores = None
+                kept.append(question)
+                continue
+            if score is None:
+                # 一个有效维度都没有：保守保留题目不打分（不因自评抖动丢弃已生成内容）
+                question.self_eval_score = None
+                question.self_eval_scores = None
                 kept.append(question)
                 continue
             if score < self_eval_threshold:
                 dropped += 1
                 continue
             question.self_eval_score = score
+            question.self_eval_scores = scores
             kept.append(question)
 
     # 子系统2：number 截断（自评后截断，保留高分题）

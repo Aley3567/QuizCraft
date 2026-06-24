@@ -7,18 +7,19 @@
 
 **STATUS: IN PROGRESS**
 
-- 当前切片：**Phase 1 切片 1.2（LLM 配置与出题增强）** —— 子系统 1/2/3 后端完成，进行中
-- 上一轮完成：切片 1.2 子系统 3 简答评分后端（short_answer 题型生成 + LLM rubric 评分 0-1 + 引用文档反馈 +
-  Answer 按题型分流 + 混合会话结算），新增 20 测（累计 131）
-- 下一步：子系统 1 前端 Settings 页，或子系统 6 完整 6 维自评（纯逻辑层 TDD 友好），
-  或子系统 1 后端增量"运行时改用 DB 配置"
+- 当前切片：**Phase 1 切片 1.2（LLM 配置与出题增强）** —— 子系统 1/2/3/6 后端完成，进行中
+- 上一轮完成：切片 1.2 子系统 6 完整 6 维自评（accuracy/clarity/difficulty/source_grounding/
+  non_trivial/non_ambiguous + 向后兼容部分维度取平均 + 可配阈值默认 2/3 等价总分 4 + self_eval_scores
+  明细 + router 语义区分修复），新增 5 测（累计 136）
+- 下一步：子系统 5 交叉出题 + 标记坏题后端（纯逻辑 + DB 字段/API，可完整测试，无前端 blocker），
+  或子系统 1 后端增量"运行时改用 DB 配置"（让已存 DB 配置生效）
 
 ## 切片完成情况
 
 | 切片 | 状态 | progress 文件 | 备注 |
 |------|------|---------------|------|
 | 1.1 最小出题闭环 | COMPLETE | docs/progress/SLICE_1_1.md | 6 子系统全完成，后端 71 测 + 前端 21 测绿；真实 LLM/真实 PDF fixture 待 yufeng |
-| 1.2 LLM 配置与出题增强 | IN PROGRESS | docs/progress/SLICE_1_2.md | 子系统 1-3 后端完成（加密存储+API+连通测试 / 出题参数+Bloom四层 / 简答评分0-1+混合结算，20 新测）；前端 + 子系统 4-6 + 异步轮询待 |
+| 1.2 LLM 配置与出题增强 | IN PROGRESS | docs/progress/SLICE_1_2.md | 子系统 1-3+6 后端完成（加密存储+API+连通测试 / 出题参数+Bloom四层 / 简答评分0-1+混合结算 / 完整6维自评+可配阈值，5 新测）；前端 + 子系统 4-5 + 异步轮询待 |
 | 1.3 闪卡与 FSRS | 未开始 | — | 依赖 1.1+1.2 |
 | 1.4 DOCX 与分层解析 | 未开始 | — | 依赖 1.1+1.2 |
 | 1.5 自部署与离线 | 未开始 | — | 依赖 1.1-1.4 |
@@ -58,6 +59,14 @@
   分支生成简答题（`build_step2_short_answer_messages`）；`score_short_answer` 纯逻辑层（LLM rubric 评 0-1，
   clamp + 兜底锚定来源）；`submit_answer` 按题型分流（选择确定性判分 / 简答 LLM 评分）；混合会话结算
   `score=(选择题正确数+简答分数和)/总题数`；幂等 upsert 五字段。同步评分（异步轮询留真实 LLM 接入后）。
+
+### 切片 1.2 子系统 6（轮次 4）
+
+- 完整 6 维自评后端：`build_eval_messages` 扩展 accuracy/clarity/difficulty/source_grounding/
+  non_trivial/non_ambiguous 六维；`_compute_self_eval_score` 对存在维度取平均（向后兼容旧 2 维 mock）；
+  默认阈值 0.6→2/3（等价总分 4，对齐 PRD「默认 <4 分淘汰」）；`GeneratedQuestion.self_eval_scores` 记
+  各维度明细（内存不落库）；`QuizGenerationRequest.self_eval_threshold` 可配 + router 条件传参
+  （区分 schema None=用默认 vs generate_quiz None=跳过自评，避免默认出题静默跳过自评）。
 
 ## Blockers（跨切片，待 yufeng 外部资源）
 

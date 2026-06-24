@@ -112,6 +112,8 @@ class QuizGenerationRequest(BaseModel):
     - chapter_scope：section_path 子串白名单，None=全部章节
     - bloom_distribution：Bloom 层级 → 比例，如 {"记忆": 0.4, "应用": 0.2, ...}
     - concepts_per_section / questions_per_concept：底层出题密度旋钮
+    - self_eval_threshold（子系统6）：6 维自评淘汰阈值 0-1，None=用默认 2/3（等价总分 4）；
+      设 0 = 保留全部题不淘汰（仍自评记分），调高则更严格淘汰低分题
     """
 
     number: int | None = None
@@ -121,3 +123,4 @@ class QuizGenerationRequest(BaseModel):
     bloom_distribution: dict[str, float] | None = None
     concepts_per_section: int = 5
     questions_per_concept: int = 2
+    self_eval_threshold: float | None = None

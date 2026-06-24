@@ -54,8 +54,8 @@ def test_step2_prompt_requires_options_and_source():
     assert _section().content in msgs[1].content
 
 
-def test_eval_prompt_scores_two_dimensions():
-    """自评 prompt 只评 accuracy + source-grounding 两维度，要求 JSON。"""
+def test_eval_prompt_scores_six_dimensions():
+    """子系统6：自评 prompt 评完整 6 维度（accuracy/clarity/difficulty/source_grounding/non_trivial/non_ambiguous）。"""
     question = SimpleNamespace(
         stem="光反应发生在？",
         options=["细胞核", "类囊体膜", "细胞壁", "液泡"],
@@ -67,8 +67,15 @@ def test_eval_prompt_scores_two_dimensions():
     assert len(msgs) == 2
 
     blob = msgs[0].content + msgs[1].content
-    assert "accuracy" in blob
-    assert "source_grounding" in blob
+    for dim in (
+        "accuracy",
+        "clarity",
+        "difficulty",
+        "source_grounding",
+        "non_trivial",
+        "non_ambiguous",
+    ):
+        assert dim in blob
     assert "JSON" in blob
     assert "光反应发生在？" in msgs[1].content
 

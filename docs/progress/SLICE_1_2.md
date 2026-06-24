@@ -6,7 +6,7 @@
 
 ## 当前状态
 
-子系统 1 后端 + 子系统 2 后端 + 子系统 3 简答评分后端完成。累计 131 测全绿（新增 20 测）。
+子系统 1-3 后端 + 子系统 6 完整 6 维自评完成。累计 136 测全绿（本轮新增 5 测）。
 
 - 子系统 1 后端：API key Fernet 加密存储 + KV settings 表 + GET/POST /api/settings/llm + 连通测试
 - 子系统 2 后端：出题参数 number / difficulty_range / question_types / chapter_scope /
@@ -14,9 +14,11 @@
   POST /api/documents/{id}/generate-quiz 接受可选 body（无 body 退回切片 1.1 默认行为）
 - 子系统 3 后端：简答题型生成（short_answer）+ LLM rubric 评分 0-1 + 引用文档反馈 +
   Answer 按题型分流（选择确定性判分 / 简答 LLM 评分）+ 混合会话结算
+- 子系统 6 后端：完整 6 维自评（accuracy/clarity/difficulty/source_grounding/
+  non_trivial/non_ambiguous）+ 向后兼容部分维度 + 可配阈值（默认 2/3 等价总分 4）+
+  self_eval_scores 明细（内存）
 
-前端 Settings UI、运行时出题/答题改用 DB 配置、题目预览编辑、交叉出题、
-完整 6 维自评——均待后续轮次。
+前端 Settings UI、运行时出题/答题改用 DB 配置、题目预览编辑、交叉出题——均待后续轮次。
 
 ## 已完成
 
@@ -153,6 +155,34 @@ test_short_answer（+6 新文件：评分/兜底/缺 feedback/clamp）/ test_ans
   接入后再做（mock 秒级返回；真实 LLM 耗时是 blocker）
 - 真正多题型 true_false/fill_blank 生成（留配套评分方式）
 
+### 2026-06-24 轮次 4：完整 6 维自我批评管线（子系统 6）
+
+TDD（先红后绿），5 个新测试（1 prompts + 4 generator + 1 api），累计 136 全绿。一个 commit。
+
+**自评维度扩展（`services/quiz/prompts.py` `build_eval_messages`）**
+- 从 2 维（accuracy + source_grounding）扩展到完整 6 维（对齐 PRD 子系统 6）：
+  accuracy / clarity / difficulty / source_grounding / non_trivial / non_ambiguous
+- prompt 要求 LLM 返回 6 个 0-1 浮点；user message 增补「标注难度」供 difficulty 维度比对
+- difficulty 字段用 getattr 安全访问，兼容不含该属性的 duck-typed question（测试用 SimpleNamespace）
+
+**6 维分数计算（`services/quiz/generator.py`，纯逻辑）**
+- 新增 `SELF_EVAL_DIMENSIONS` 常量 + `_compute_self_eval_score(data) -> (score, scores)`：
+  对返回中**实际存在**的维度取平均 → 向后兼容旧 2 维 mock 响应（EVAL_HIGH 仍 0.9，不破坏现有测试）
+- 一个有效维度都没有 → (None, None)，调用方保守保留题目不打分（不因自评抖动丢弃已生成内容）
+- `GeneratedQuestion` 加 `self_eval_scores: dict | None`（各维度明细，仅生成期内存，不落库）
+- 默认阈值 0.6 → 2/3（≈0.667），等价 6 维总分 4 淘汰（对齐 PRD「默认 <4 分淘汰」）
+- generate_quiz 自评块改用 _compute_self_eval_score + 记录 scores；简答仍跳过生成期自评
+
+**可配阈值（`schemas/quiz.py` + `routers/quiz.py`）**
+- `QuizGenerationRequest` 加 `self_eval_threshold: float | None`（None=用默认 2/3）
+- **语义区分修复（关键，ASGITransport 测试发现）**：schema 的 None=「用默认」与 generate_quiz 的
+  None=「跳过自评」冲突；router 直接透传 None 会让默认出题跳过自评 → self_eval_score=None。
+  修复：router 条件传参——未指定时不传（用 generate_quiz 默认 2/3 启用自评），用户显式传值时覆盖
+  （0=保留全部题不淘汰但仍自评记分，调高则更严格淘汰）
+
+**测试**：test_quiz_prompts（替换 2 维断言为 6 维）/ test_quiz_generator（+4：6 维保留+scores 明细 /
+6 维淘汰 / 部分维度向后兼容 / 默认阈值淘汰）/ test_quiz_api（+1：self_eval_threshold 可配）
+
 ## 子系统进度（按 SLICE_PHASE_1.md 切片 1.2 任务清单）
 
 - [~] 1. LLM 配置 UI 与后端（Settings 页 + provider/key/model/base_url 存 SQLite settings 表 + POST /api/settings/llm + 测试调用连通验证）
@@ -168,7 +198,7 @@ test_short_answer（+6 新文件：评分/兜底/缺 feedback/clamp）/ test_ans
   - [ ] 异步评分 + 前端轮询（同步评分已通，异步状态机留真实 LLM 接入后）
 - [ ] 4. 题目预览与编辑（预览模式 + 编辑/删除 + 确认进练习池）
 - [ ] 5. 交叉出题 + 标记坏题（按 concept/type 交叉混合 + 坏题移出练习池）
-- [ ] 6. 完整自我批评管线（6 维度自评 + 可配淘汰阈值）
+- [x] 6. 完整自我批评管线（6 维度自评 + 可配淘汰阈值） —— 轮次 4
 
 ## 验收标准核对
 
@@ -178,15 +208,15 @@ test_short_answer（+6 新文件：评分/兜底/缺 feedback/clamp）/ test_ans
 - [ ] 题目生成后可预览/编辑/删除，确认后进练习池 —— 子系统 4
 - [ ] 答题时题目顺序交叉混合 —— 子系统 5
 - [ ] 可标记坏题 —— 子系统 5
-- [ ] 完整 6 维度自评 + 可配阈值 —— 子系统 6
+- [x] 完整 6 维度自评 + 可配阈值 —— 子系统 6（轮次 4）
 
 ## 还剩
 
-切片 1.2 子系统 1-3 后端完成（LLM 配置 + 出题参数 + 简答评分），剩余子系统 1 前端 + 子系统 2 前端/多题型 +
-子系统 3 异步轮询 + 子系统 4-6。
-下一轮优先做子系统 1 前端 Settings 页（打通"配置→测试"端到端 UI），
-或子系统 6 完整 6 维自评（纯逻辑层，TDD 友好，无需前端），
-或子系统 1 后端增量"运行时改用 DB 配置"（让已存 DB 配置生效）。
+切片 1.2 子系统 1-3 + 6 后端完成（LLM 配置 + 出题参数 + 简答评分 + 完整 6 维自评），剩余子系统 1 前端 +
+子系统 2 前端/多题型 + 子系统 3 异步轮询 + 子系统 4（预览编辑）+ 子系统 5（交叉出题/标记坏题）。
+下一轮优先做子系统 5 交叉出题 + 标记坏题后端（纯逻辑 + DB 字段/API，可完整测试，无前端 blocker），
+或子系统 1 后端增量"运行时改用 DB 配置"（让已存 DB 配置生效，但涉及所有路由 LLM 依赖签名变 async，
+单独一轮做更稳妥）。
 
 ## Blockers
 

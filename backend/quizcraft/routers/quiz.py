@@ -77,9 +77,9 @@ async def generate_quiz_for_document(
     if not sections:
         raise HTTPException(status_code=400, detail="章节范围内无可出题的分块")
 
-    gen = await generate_quiz(
-        sections,
-        llm,
+    # 子系统6：未指定 self_eval_threshold 时不传 → generate_quiz 用默认 2/3（启用自评）；
+    # 用户显式传值时覆盖（0=保留全部题不淘汰但仍自评记分，调高则更严格淘汰）
+    gen_kwargs: dict = dict(
         concepts_per_section=params.concepts_per_section,
         questions_per_concept=params.questions_per_concept,
         number=params.number,
@@ -87,6 +87,9 @@ async def generate_quiz_for_document(
         question_types=params.question_types,
         bloom_distribution=params.bloom_distribution,
     )
+    if params.self_eval_threshold is not None:
+        gen_kwargs["self_eval_threshold"] = params.self_eval_threshold
+    gen = await generate_quiz(sections, llm, **gen_kwargs)
 
     # 落库 Concepts（保留 ORM 引用，供 Question 外键与响应回填）
     concept_orm: list[Concept] = []
