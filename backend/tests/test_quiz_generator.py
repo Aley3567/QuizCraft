@@ -348,3 +348,78 @@ async def test_self_eval_default_threshold_drops_below_four():
     )
     assert result.dropped_count == 1
     assert len(result.questions) == 0
+
+
+# ---------- 子系统2：填空题生成（fill_blank，确定性评分在答题时） ----------
+
+STEP2_FILL_JSON = (
+    '{"questions": [{"stem": "光反应发生在____上。", "answer_text": "类囊体膜", '
+    '"explanation": "考察光反应部位。", "bloom_level": "记忆", "difficulty": "easy", '
+    '"source_text": "光反应发生在类囊体膜上。"}]}'
+)
+
+
+async def test_step2_generates_fill_blank_question():
+    """子系统2：question_types=['fill_blank'] → 生成填空题，无 options/correct_option_index，带 answer_text。"""
+    result = await generate_quiz(
+        [SECTION],
+        MockLLMClient(responses=[STEP1_JSON, STEP2_FILL_JSON]),
+        self_eval_threshold=None,
+        question_types=["fill_blank"],
+    )
+    assert len(result.questions) == 1
+    q = result.questions[0]
+    assert q.question_type == "fill_blank"
+    assert q.stem == "光反应发生在____上。"
+    assert q.answer_text == "类囊体膜"
+    assert q.correct_option_index is None
+    assert q.options == []
+    assert q.source_span["text"] == "光反应发生在类囊体膜上。"
+    assert q.source_span["page"] == 12
+
+
+async def test_mixed_three_question_types_generates_all():
+    """子系统2：question_types=['multiple_choice','short_answer','fill_blank'] → 每概念各生成一题。"""
+    result = await generate_quiz(
+        [SECTION],
+        MockLLMClient(responses=[STEP1_JSON, STEP2_JSON, STEP2_SHORT_JSON, STEP2_FILL_JSON]),
+        self_eval_threshold=None,
+        questions_per_concept=1,
+        question_types=["multiple_choice", "short_answer", "fill_blank"],
+    )
+    assert len(result.questions) == 3
+    types = {q.question_type for q in result.questions}
+    assert types == {"multiple_choice", "short_answer", "fill_blank"}
+    fb = next(q for q in result.questions if q.question_type == "fill_blank")
+    assert fb.answer_text == "类囊体膜"
+    assert fb.options == []
+
+
+async def test_fill_blank_skips_self_eval():
+    """子系统2：填空题跳过生成期自评（评分在答题时确定性匹配），self_eval_score=None。"""
+    result = await generate_quiz(
+        [SECTION],
+        MockLLMClient(responses=[STEP1_JSON, STEP2_FILL_JSON]),
+        self_eval_threshold=0.6,
+        question_types=["fill_blank"],
+    )
+    assert len(result.questions) == 1
+    assert result.questions[0].self_eval_score is None
+    assert result.dropped_count == 0  # 填空题不因自评被淘汰
+
+
+async def test_fill_blank_respects_difficulty_range():
+    """子系统2：difficulty_range 同样过滤填空题（填空题也带 difficulty 字段）。"""
+    step2_hard = (
+        '{"questions": [{"stem": "题____", "answer_text": "答", "explanation": "", '
+        '"bloom_level": "应用", "difficulty": "hard", "source_text": "光反应发生在类囊体膜上。"}]}'
+    )
+    result = await generate_quiz(
+        [SECTION],
+        MockLLMClient(responses=[STEP1_JSON, step2_hard]),
+        self_eval_threshold=None,
+        question_types=["fill_blank"],
+        difficulty_range=["easy"],
+    )
+    assert len(result.questions) == 0
+    assert result.filtered_count == 1

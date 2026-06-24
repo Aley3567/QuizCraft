@@ -22,6 +22,7 @@ from quizcraft.models.quiz import Answer, Question, QuestionType, QuizSession, S
 from quizcraft.schemas.quiz import AnswerOut, AnswerRequest
 from quizcraft.services.llm import LLMClient
 from quizcraft.services.quiz.feedback import generate_feedback
+from quizcraft.services.quiz.fill_blank import score_fill_blank
 from quizcraft.services.quiz.short_answer import score_short_answer
 
 router = APIRouter(prefix="/api/quiz-sessions", tags=["quiz"])
@@ -57,6 +58,20 @@ async def submit_answer(
         is_correct = None
         score = result.score
         feedback = result.feedback
+        selected_option_index = None
+        short_answer_text = body.short_answer_text
+    elif question.question_type == QuestionType.FILL_BLANK:
+        if not body.short_answer_text or not body.short_answer_text.strip():
+            raise HTTPException(status_code=400, detail="填空题需提供作答文本")
+        result = score_fill_blank(question, student_answer=body.short_answer_text)
+        is_correct = result.is_correct
+        score = None
+        feedback = await generate_feedback(
+            question,
+            selected_option_index=-1,
+            is_correct=is_correct,
+            llm=llm,
+        )
         selected_option_index = None
         short_answer_text = body.short_answer_text
     else:

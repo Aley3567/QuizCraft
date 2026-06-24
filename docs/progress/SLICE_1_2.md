@@ -2,22 +2,23 @@
 
 > Ralph 循环进度文件，每轮更新。状态活在 git commit + 本文件，不靠对话记忆。
 
-**STATUS: IN PROGRESS**
+**STATUS: BLOCKED**
 
 ## 当前状态
 
-子系统 1-6 后端完成（含子系统1 运行时 DB 配置增量）+ 出题参数 + 简答评分 + 交叉出题/标记坏题 +
-完整 6 维自评 + 题目预览编辑/删除/确认进池。累计 174 测全绿（本轮新增 8 测）。
+子系统 1-6 后端完成（含子系统1 运行时 DB 配置增量）+ 出题参数 + 填空题生成/判分 +
+简答评分 + 交叉出题/标记坏题 + 完整 6 维自评 + 题目预览编辑/删除/确认进池。
+累计 199 测全绿（本轮 Codex 接管 stale Ralph 的填空题半成品，修复接线后全量后端测试通过）。
 
 切片 1.2 可运行后端工作已收口：剩余全是 blocker（前端浏览器人机 / 简答异步轮询需真实 LLM）。
-下一轮若 monitor 判定 1.2 后端完成 → 推进切片 1.3（闪卡 FSRS，依赖 1.1+1.2 已满足）。
+本地 queue 应停止在 1.2，通知 yufeng；不要继续反复领取 1.2，也不要推进依赖 1.2 COMPLETE 的 1.3。
 
 - 子系统 1 后端：API key Fernet 加密存储 + KV settings 表 + GET/POST /api/settings/llm + 连通测试
 - 子系统 2 后端：出题参数 number / difficulty_range / question_types / chapter_scope /
   bloom_distribution + Bloom 完整四层（记忆/理解/应用/分析）+
   POST /api/documents/{id}/generate-quiz 接受可选 body（无 body 退回切片 1.1 默认行为）
 - 子系统 3 后端：简答题型生成（short_answer）+ LLM rubric 评分 0-1 + 引用文档反馈 +
-  Answer 按题型分流（选择确定性判分 / 简答 LLM 评分）+ 混合会话结算
+  Answer 按题型分流（选择确定性判分 / 填空本地匹配 / 简答 LLM 评分）+ 混合会话结算
 - 子系统 4 后端：Question.in_practice_pool 字段 + PUT /api/questions/{id} 编辑（按题型校验）+
   DELETE /api/questions/{id} 删除（清理引用会话 question_ids）+ POST /api/questions/{id}/publish
   确认进池 + GET /api/documents/{id}/questions/drafts 草稿预览 + generate-quiz auto_publish 参数
@@ -26,7 +27,7 @@
   non_trivial/non_ambiguous）+ 向后兼容部分维度 + 可配阈值（默认 2/3 等价总分 4）+
   self_eval_scores 明细（内存）
 
-前端 Settings UI、运行时出题/答题改用 DB 配置、交叉出题前端——均待后续轮次。
+前端 Settings UI、出题配置/预览编辑/标记坏题 UI、真实 LLM 异步轮询——均待 yufeng/真实环境解锁。
 
 ## 已完成
 
@@ -315,6 +316,23 @@ TDD（先红后绿），8 个新测试（4 resolve 纯逻辑 + 2 get_llm_client 
 （需真实 LLM）。openai DB 配置在 SOCKS 代理环境的 AsyncOpenAI 构造失败 → 路由 500（不静默降级），
 属部署环境 blocker（同切片 1.1 SOCKS blocker，真实部署装 httpx[socks] 或清代理）。
 
+### 2026-06-24 Codex 接管 stale Ralph：填空题型生成与确定性评分
+
+Ralph 第 8 轮运行超过 60 分钟无日志输出，留下填空题半成品 diff（模型/prompt/测试已写，
+generator/API/答题分流未接线）。Codex 按 monitor 规则终止 stale 进程，保留 diff，补最小实现并提交。
+
+- `QuestionType.FILL_BLANK`：字段布局同简答（`options=[]`、`correct_option_index=None`、`answer_text` 为参考答案），评分方式为本地确定性匹配
+- `services/quiz/fill_blank.py`：NFKC 归一化 + 小写 + 去空白/标点，normalize 后与 `answer_text` 完全相等判对；不依赖 LLM
+- `build_step2_fill_blank_messages`：要求题干含 `____` 占位、`answer_text` 参考答案、`source_text` 原文锚定
+- `generate_quiz`：支持 `question_types=["fill_blank"]` 和混合 `multiple_choice/short_answer/fill_blank`；填空题跳过生成期自评，difficulty_range 过滤生效
+- `POST /api/documents/{id}/generate-quiz`：白名单加入 fill_blank，落库 `answer_text`
+- `POST /api/quiz-sessions/{id}/answer`：填空题走本地 `score_fill_blank`，`is_correct` 计入客观题结算，`score=None` 避免与 is_correct 双重计分
+- 反馈兜底与 LLM feedback prompt 支持无选项题，引用 `answer_text` 作为正确答案/参考答案
+
+验证：
+- 相关集合：`uv run pytest backend/tests/test_fill_blank.py backend/tests/test_quiz_prompts.py backend/tests/test_quiz_generator.py backend/tests/test_quiz_api.py backend/tests/test_answer_api.py` → 80 passed
+- 全量后端：`uv run pytest` → 199 passed
+
 ## 子系统进度（按 SLICE_PHASE_1.md 切片 1.2 任务清单）
 
 - [~] 1. LLM 配置 UI 与后端（Settings 页 + provider/key/model/base_url 存 SQLite settings 表 + POST /api/settings/llm + 测试调用连通验证）
@@ -323,8 +341,9 @@ TDD（先红后绿），8 个新测试（4 resolve 纯逻辑 + 2 get_llm_client 
   - [ ] 前端 Settings 页（provider 选择 + key 输入 + model/base_url + 测试按钮）—— blocker（浏览器）
 - [ ] 2. 出题参数控制（number/difficulty_range/question_types/chapter_scope/bloom_distribution API + 前端面板 + Bloom 完整 4 层）
   - [x] 后端：参数 schema + generate_quiz 扩展 + prompt Bloom 四层 + POST body + 测试 —— 轮次 2
+  - [x] 填空题型生成与确定性评分（fill_blank + answer_text + 本地 normalize 匹配）—— Codex 接管 stale Ralph
   - [ ] 前端出题配置面板（选择题数/难度/题型比例/章节范围）
-  - [ ] 真正多题型生成（true_false/fill_blank/short_answer，留子系统 3 配套评分）
+  - [ ] 判断题 true_false（可作为选择题特例，留后续）
 - [ ] 3. 简答题生成与评分（short_answer 题型 + LLM rubric 评分 + 异步轮询）
   - [x] 后端：short_answer 题型生成 + LLM rubric 评分 0-1 + 引用文档反馈 + Answer 按题型分流 + 混合会话结算 —— 轮次 3
   - [ ] 异步评分 + 前端轮询（同步评分已通，异步状态机留真实 LLM 接入后）

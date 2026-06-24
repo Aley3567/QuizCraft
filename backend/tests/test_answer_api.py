@@ -489,3 +489,215 @@ async def test_answer_short_answer_is_idempotent(session, client, llm_mock):
     ).scalar_one()
     assert quiz.status == SessionStatus.COMPLETED
     assert quiz.score == 0.65  # (0.8 + 0.5) / 2
+
+
+# ---------- 子系统2：填空题评分 API（确定性匹配，不依赖 LLM 判分） ----------
+
+
+async def _seed_fill_blank_quiz(session, *, n_questions: int = 1):
+    """直接插一份带 N 道填空题的答题会话（填空评分聚焦确定性匹配，不走出题 LLM）。"""
+    doc = Document(filename="lecture.pdf", page_count=1, status=DocumentStatus.COMPLETE)
+    session.add(doc)
+    await session.flush()
+    section = Section(
+        document_id=doc.id,
+        section_path="第2章 光合作用",
+        page_number=12,
+        content="光合作用是植物利用光能合成有机物的过程。光反应发生在类囊体膜上。",
+        order_index=0,
+        token_count=20,
+    )
+    session.add(section)
+    await session.flush()
+
+    question_ids: list[int] = []
+    for i in range(n_questions):
+        q = Question(
+            document_id=doc.id,
+            concept_id=None,
+            section_id=section.id,
+            question_type=QuestionType.FILL_BLANK,
+            stem=f"光反应发生在____上。（题{i}）",
+            options=[],
+            correct_option_index=None,
+            answer_text="类囊体膜",
+            explanation="考察光反应部位。",
+            source_span={
+                "page": 12,
+                "section_path": "第2章 光合作用",
+                "text": "光反应发生在类囊体膜上。",
+            },
+            bloom_level="记忆",
+            difficulty="easy",
+            self_eval_score=None,
+        )
+        session.add(q)
+        await session.flush()
+        question_ids.append(q.id)
+
+    quiz = QuizSession(
+        document_id=doc.id,
+        question_ids=question_ids,
+        status=SessionStatus.IN_PROGRESS,
+        total=len(question_ids),
+    )
+    session.add(quiz)
+    await session.commit()
+    return quiz.id, question_ids
+
+
+async def test_answer_fill_blank_correct_marks_is_correct(session, client, llm_mock):
+    """填空题作答与参考答案匹配 → is_correct=True，score=None（客观题布局），feedback 来自 LLM。"""
+    quiz_id, qids = await _seed_fill_blank_quiz(session, n_questions=1)
+    llm_mock.set_responses([FEEDBACK])
+
+    resp = await client.post(
+        f"/api/quiz-sessions/{quiz_id}/answer",
+        json={"question_id": qids[0], "short_answer_text": "类囊体膜"},
+    )
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["is_correct"] is True
+    assert body["score"] is None  # 客观题不计 score（避免结算双重计算）
+    assert body["short_answer_text"] == "类囊体膜"
+    assert body["selected_option_index"] is None
+    assert body["feedback"] == FEEDBACK
+
+
+async def test_answer_fill_blank_wrong_marks_incorrect(session, client, llm_mock):
+    """填空题作答与参考答案不匹配 → is_correct=False。"""
+    quiz_id, qids = await _seed_fill_blank_quiz(session, n_questions=1)
+    llm_mock.set_responses([FEEDBACK])
+
+    resp = await client.post(
+        f"/api/quiz-sessions/{quiz_id}/answer",
+        json={"question_id": qids[0], "short_answer_text": "细胞核"},
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["is_correct"] is False
+    assert resp.json()["score"] is None
+
+
+async def test_answer_fill_blank_punctuation_tolerated(session, client, llm_mock):
+    """填空评分容忍标点：学生答"类囊体膜。"仍判对（normalize 去标点后相等）。"""
+    quiz_id, qids = await _seed_fill_blank_quiz(session, n_questions=1)
+    llm_mock.set_responses([FEEDBACK])
+    resp = await client.post(
+        f"/api/quiz-sessions/{quiz_id}/answer",
+        json={"question_id": qids[0], "short_answer_text": " 类囊体膜。 "},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["is_correct"] is True
+
+
+async def test_answer_fill_blank_missing_text_400(session, client, llm_mock):
+    """填空题未提供作答文本 → 400。"""
+    quiz_id, qids = await _seed_fill_blank_quiz(session, n_questions=1)
+    llm_mock.set_responses([])
+    resp = await client.post(
+        f"/api/quiz-sessions/{quiz_id}/answer",
+        json={"question_id": qids[0]},  # 无 short_answer_text
+    )
+    assert resp.status_code == 400
+
+
+async def test_answer_fill_blank_completes_session_with_score(session, client, llm_mock):
+    """单道填空题答对答完 → 会话结算，score=1.0（is_correct 计 1 / total 1）。"""
+    quiz_id, qids = await _seed_fill_blank_quiz(session, n_questions=1)
+    llm_mock.set_responses([FEEDBACK])
+    resp = await client.post(
+        f"/api/quiz-sessions/{quiz_id}/answer",
+        json={"question_id": qids[0], "short_answer_text": "类囊体膜"},
+    )
+    assert resp.status_code == 200, resp.text
+    quiz = (
+        await session.execute(select(QuizSession).where(QuizSession.id == quiz_id))
+    ).scalar_one()
+    assert quiz.status == SessionStatus.COMPLETED
+    assert quiz.score == 1.0
+
+
+async def test_answer_mixed_mc_and_fill_blank_no_double_counting(session, client, llm_mock):
+    """混合会话结算不双重计算：选择题答对(+1) + 填空答对(+1)，total=2 → score=1.0。
+
+    回归保护：填空题若误设 score=1.0 + is_correct=True，会被结算逻辑同时计入
+    is_correct 与 score → score=1.5（错误）。此处断言填空题 score=None，仅计 is_correct。
+    """
+    doc = Document(filename="mixed.pdf", page_count=1, status=DocumentStatus.COMPLETE)
+    session.add(doc)
+    await session.flush()
+    section = Section(
+        document_id=doc.id,
+        section_path="第2章 光合作用",
+        page_number=12,
+        content="光合作用是植物利用光能合成有机物的过程。光反应发生在类囊体膜上。",
+        order_index=0,
+        token_count=20,
+    )
+    session.add(section)
+    await session.flush()
+
+    mc = Question(
+        document_id=doc.id,
+        concept_id=None,
+        section_id=section.id,
+        question_type=QuestionType.MULTIPLE_CHOICE,
+        stem="光反应发生在？",
+        options=["细胞核", "类囊体膜", "细胞壁", "液泡"],
+        correct_option_index=1,
+        explanation="光反应在类囊体膜",
+        source_span={"page": 12, "section_path": "第2章", "text": "光反应发生在类囊体膜上。"},
+        bloom_level="记忆",
+        difficulty="easy",
+        self_eval_score=0.9,
+    )
+    fb = Question(
+        document_id=doc.id,
+        concept_id=None,
+        section_id=section.id,
+        question_type=QuestionType.FILL_BLANK,
+        stem="光反应发生在____上。",
+        options=[],
+        correct_option_index=None,
+        answer_text="类囊体膜",
+        explanation="考察光反应部位",
+        source_span={"page": 12, "section_path": "第2章", "text": "光反应发生在类囊体膜上。"},
+        bloom_level="记忆",
+        difficulty="easy",
+        self_eval_score=None,
+    )
+    session.add_all([mc, fb])
+    await session.flush()
+    quiz = QuizSession(
+        document_id=doc.id,
+        question_ids=[mc.id, fb.id],
+        status=SessionStatus.IN_PROGRESS,
+        total=2,
+    )
+    session.add(quiz)
+    await session.commit()
+
+    llm_mock.set_responses([FEEDBACK, FEEDBACK])
+    # 选择题答对（选1=正解1）
+    r1 = await client.post(
+        f"/api/quiz-sessions/{quiz.id}/answer",
+        json={"question_id": mc.id, "selected_option_index": 1},
+    )
+    assert r1.status_code == 200, r1.text
+    # 填空题答对
+    r2 = await client.post(
+        f"/api/quiz-sessions/{quiz.id}/answer",
+        json={"question_id": fb.id, "short_answer_text": "类囊体膜"},
+    )
+    assert r2.status_code == 200, r2.text
+    assert r2.json()["is_correct"] is True
+    assert r2.json()["score"] is None  # 关键：填空题 score=None，避免双重计算
+
+    quiz_final = (
+        await session.execute(select(QuizSession).where(QuizSession.id == quiz.id))
+    ).scalar_one()
+    await session.refresh(quiz_final)
+    assert quiz_final.status == SessionStatus.COMPLETED
+    assert quiz_final.score == 1.0  # (1 + 1) / 2，非 1.5

@@ -47,11 +47,13 @@ def _fallback_feedback(question, *, is_correct: bool) -> str:
     text = span.get("text", "")
     options = getattr(question, "options", None) or []
     correct_idx = getattr(question, "correct_option_index", None)
-    correct_text = (
-        options[correct_idx]
-        if correct_idx is not None and 0 <= correct_idx < len(options)
-        else ""
-    )
+    answer_text = getattr(question, "answer_text", None) or ""
+    if correct_idx is not None and 0 <= correct_idx < len(options):
+        correct_text = options[correct_idx]
+    elif answer_text:
+        correct_text = answer_text  # 填空题/简答题：无选项，参考答案即正确答案
+    else:
+        correct_text = ""
 
     verdict = "回答正确。" if is_correct else "回答错误。"
     correct_line = f"正确答案：「{correct_text}」。" if correct_text else ""

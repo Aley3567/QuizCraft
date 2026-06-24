@@ -158,3 +158,52 @@ def test_short_answer_eval_prompt_uses_rubric_and_student_answer():
     # rubric（参考答案）与学生作答均嵌入
     assert "类囊体膜" in msgs[1].content
     assert "细胞核里进行" in msgs[1].content
+
+
+def test_step2_fill_blank_prompt_requires_answer_and_source():
+    """子系统2：填空 Step2 prompt 要求 answer_text（参考答案）+ source_text 锚定 + 占位，不要求 options。"""
+    from quizcraft.services.quiz.prompts import build_step2_fill_blank_messages
+
+    concept = SimpleNamespace(name="光合作用", description="植物利用光能合成有机物")
+    msgs = build_step2_fill_blank_messages(concept, _section(), n=2)
+    assert len(msgs) == 2
+
+    blob = msgs[0].content + msgs[1].content
+    assert "JSON" in blob
+    assert "answer_text" in blob  # 参考答案（评分依据）
+    assert "source_text" in blob  # 来源锚定
+    assert "options" not in blob  # 填空题无选项
+    assert "fill_blank" in blob  # 明确填空题型
+    assert "光合作用" in msgs[1].content
+    assert _section().content in msgs[1].content
+
+
+def test_step2_fill_blank_prompt_constrains_difficulty_range():
+    """子系统2：填空 prompt 同样约束 difficulty_range（含"只能取" + 指定值）。"""
+    from quizcraft.services.quiz.prompts import build_step2_fill_blank_messages
+
+    concept = SimpleNamespace(name="光合作用", description="")
+    msgs = build_step2_fill_blank_messages(concept, _section(), n=2, difficulty_range=["easy", "medium"])
+    blob = msgs[0].content + msgs[1].content
+    assert "easy" in blob
+    assert "medium" in blob
+    assert "只能取" in blob
+
+
+def test_feedback_prompt_handles_fill_blank_empty_options():
+    """子系统2：填空题反馈 prompt 兼容空 options（无选项下标），并嵌入参考答案供反馈溯源。"""
+    from quizcraft.services.quiz.prompts import build_feedback_messages
+
+    question = SimpleNamespace(
+        stem="光反应发生在____上。",
+        options=[],
+        correct_option_index=None,
+        answer_text="类囊体膜",
+        explanation="光反应在类囊体膜",
+        source_span={"text": "光反应发生在类囊体膜上。", "page": 12, "section_path": "第2章"},
+    )
+    msgs = build_feedback_messages(question, selected_option_index=-1, is_correct=False)
+    assert len(msgs) == 2
+    # 空选项不报错，且参考答案嵌入反馈依据
+    assert "类囊体膜" in msgs[1].content
+    assert "光反应发生在____上。" in msgs[1].content

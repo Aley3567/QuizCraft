@@ -14,13 +14,18 @@ from quizcraft.db import Base, TimestampMixin
 
 
 class QuestionType(str, Enum):
-    """切片 1.1 选择题；切片 1.2 子系统 3 增加简答题（LLM rubric 评分 0-1）。
+    """题目题型：选择题 / 简答题 / 填空题。
 
-    判断题/填空题留后续（判断=选择题特例，填空=精确匹配，与评分方式绑定）。
+    - multiple_choice：4 选项确定性判分（切片 1.1）
+    - short_answer：LLM rubric 评分 0-1（切片 1.2 子系统 3）
+    - fill_blank：题干含占位，学生填空，normalize 后确定性匹配（切片 1.2 子系统 2）。
+      字段布局同简答（options=[]、correct_option_index=None、answer_text 为参考答案），
+      区别仅在评分方式：填空=本地 normalize 匹配（确定性），简答=LLM rubric（0-1）。
     """
 
     MULTIPLE_CHOICE = "multiple_choice"
     SHORT_ANSWER = "short_answer"
+    FILL_BLANK = "fill_blank"
 
 
 class SessionStatus(str, Enum):

@@ -23,6 +23,7 @@ from quizcraft.services.llm import LLMClient
 from quizcraft.services.quiz.prompts import (
     build_eval_messages,
     build_step1_messages,
+    build_step2_fill_blank_messages,
     build_step2_messages,
     build_step2_short_answer_messages,
 )
@@ -148,11 +149,11 @@ def _build_generated_question(qtype, concept_index, concept, section, q) -> Gene
     """按题型从 LLM 返回的单题 dict 构造 GeneratedQuestion。
 
     - multiple_choice：options + correct_option_index 必填，answer_text=None
-    - short_answer：answer_text 必填，options=[] + correct_option_index=None
+    - short_answer / fill_blank：answer_text 必填，options=[] + correct_option_index=None
     Keyerror/TypeError（缺必填字段）由调用方捕获后跳过该题。
     """
     source_span = _build_source_span(section, q.get("source_text"))
-    if qtype == "short_answer":
+    if qtype in {"short_answer", "fill_blank"}:
         return GeneratedQuestion(
             section_index=concept.section_index,
             concept_index=concept_index,
@@ -164,7 +165,7 @@ def _build_generated_question(qtype, concept_index, concept, section, q) -> Gene
             bloom_level=q.get("bloom_level"),
             difficulty=q.get("difficulty"),
             source_span=source_span,
-            question_type="short_answer",
+            question_type=qtype,
             answer_text=q.get("answer_text"),
         )
     return GeneratedQuestion(
@@ -297,6 +298,14 @@ async def generate_quiz(
                     difficulty_range=difficulty_range,
                     bloom_distribution=bloom_distribution,
                 )
+            elif qtype == "fill_blank":
+                msgs = build_step2_fill_blank_messages(
+                    concept,
+                    section,
+                    n=questions_per_concept,
+                    difficulty_range=difficulty_range,
+                    bloom_distribution=bloom_distribution,
+                )
             else:
                 msgs = build_step2_messages(
                     concept,
@@ -339,8 +348,8 @@ async def generate_quiz(
         kept = list(candidates)
     else:
         for question in candidates:
-            if question.question_type == "short_answer":
-                # 简答题跳过生成期自评：无选项可评，评分延后到答题时
+            if question.question_type in {"short_answer", "fill_blank"}:
+                # 简答/填空跳过生成期自评：无选项可评，评分延后到答题时
                 question.self_eval_score = None
                 question.self_eval_scores = None
                 kept.append(question)

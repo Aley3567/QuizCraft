@@ -9,14 +9,17 @@ from quizcraft.services.quiz.generator import (
 )
 from quizcraft.services.quiz.prompts import (
     build_eval_messages,
+    build_step2_fill_blank_messages,
     build_short_answer_eval_messages,
     build_step1_messages,
     build_step2_messages,
     build_step2_short_answer_messages,
 )
 from quizcraft.services.quiz.short_answer import ShortAnswerScore, score_short_answer
+from quizcraft.services.quiz.fill_blank import FillBlankScore, score_fill_blank
 
 __all__ = [
+    "FillBlankScore",
     "GeneratedConcept",
     "GeneratedQuestion",
     "QuizGenerationResult",
@@ -24,10 +27,12 @@ __all__ = [
     "build_eval_messages",
     "build_short_answer_eval_messages",
     "build_step1_messages",
+    "build_step2_fill_blank_messages",
     "build_step2_messages",
     "build_step2_short_answer_messages",
     "filter_sections_by_scope",
     "generate_quiz",
     "interleave_questions",
+    "score_fill_blank",
     "score_short_answer",
 ]

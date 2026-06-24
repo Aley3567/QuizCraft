@@ -26,10 +26,11 @@ from quizcraft.services.quiz import filter_sections_by_scope, generate_quiz, int
 
 router = APIRouter(prefix="/api/documents", tags=["quiz"])
 
-# 子系统3：支持选择题与简答题；判断/填空留后续（评分方式绑定）
+# 子系统2/3：支持选择题、填空题、简答题；判断题留后续（可作为选择题特例）
 SUPPORTED_QUESTION_TYPES = {
     QuestionType.MULTIPLE_CHOICE.value,
     QuestionType.SHORT_ANSWER.value,
+    QuestionType.FILL_BLANK.value,
 }
 
 
@@ -67,8 +68,8 @@ async def generate_quiz_for_document(
             raise HTTPException(
                 status_code=400,
                 detail=(
-                    f"暂不支持题型: {sorted(unsupported)}（当前支持 multiple_choice / short_answer；"
-                    "判断/填空留待后续子系统）"
+                    f"暂不支持题型: {sorted(unsupported)}（当前支持 multiple_choice / "
+                    "short_answer / fill_blank；判断题留待后续子系统）"
                 ),
             )
 

@@ -7,20 +7,19 @@
 
 **STATUS: IN PROGRESS**
 
-- 当前切片：**Phase 1 切片 1.2（LLM 配置与出题增强）** —— 子系统 1-6 后端全部完成（含子系统1
-  运行时 DB 配置收口），可运行后端工作已耗尽，进行中
-- 上一轮完成：切片 1.2 子系统1 运行时 DB 配置增量（get_llm_client 由 sync 改 async generator，
-  优先读 DB settings、回退 env；resolve_llm_settings 纯解析逻辑 DB 优先/解密失败回退 env；
-  model_copy 保留其他字段；DB 配置构造失败不静默降级到 mock 而是路由 500），新增 8 测（累计 174）
-- 下一步：切片 1.2 可运行后端已耗尽（剩余前端需浏览器 / 异步轮询需真实 LLM，皆 blocker）。
-  若 monitor 判定 1.2 后端完成 → 推进切片 1.3 闪卡 FSRS（依赖 1.1+1.2 已满足）
+- 当前切片：**Phase 1 切片 1.2（LLM 配置与出题增强）** —— `STATUS: BLOCKED`
+  （可运行后端工作已耗尽；剩余前端/真实 LLM 异步轮询需要 yufeng 或真实环境解锁）
+- 上一轮完成：Codex 接管 stale Ralph 的 fill_blank 半成品，补齐填空题生成/API/答题分流/反馈接线，
+  全量后端 `uv run pytest` 199 passed
+- 下一步：停止 Ralph drain 并通知 yufeng。不要继续领取 1.2，也不要推进依赖 1.2 COMPLETE 的 1.3；
+  待 yufeng 解锁前端浏览器验证、真实 LLM key/异步轮询，或明确允许跳过前端后再继续。
 
 ## 切片完成情况
 
 | 切片 | 状态 | progress 文件 | 备注 |
 |------|------|---------------|------|
 | 1.1 最小出题闭环 | COMPLETE | docs/progress/SLICE_1_1.md | 6 子系统全完成，后端 71 测 + 前端 21 测绿；真实 LLM/真实 PDF fixture 待 yufeng |
-| 1.2 LLM 配置与出题增强 | IN PROGRESS | docs/progress/SLICE_1_2.md | 子系统 1-6 后端全部完成（含子系统1 运行时 DB 配置收口：加密存储+API+连通测试 / 出题参数+Bloom四层 / 简答评分0-1+混合结算 / 交叉出题+标记坏题 / 完整6维自评+可配阈值 / 预览编辑+删除+确认进池+auto_publish / 运行时 DB 配置优先 env 回退，8 新测累计 174）；可运行后端已耗尽，剩余前端+异步轮询皆 blocker |
+| 1.2 LLM 配置与出题增强 | BLOCKED | docs/progress/SLICE_1_2.md | 子系统 1-6 后端全部完成（加密存储+API+连通测试 / 运行时 DB 配置优先 env 回退 / 出题参数+Bloom四层 / 填空题生成+确定性评分 / 简答评分0-1+混合结算 / 交叉出题+标记坏题 / 完整6维自评+可配阈值 / 预览编辑+删除+确认进池+auto_publish）；全量后端 199 passed；剩余前端+异步轮询皆 blocker |
 | 1.3 闪卡与 FSRS | 未开始 | — | 依赖 1.1+1.2 |
 | 1.4 DOCX 与分层解析 | 未开始 | — | 依赖 1.1+1.2 |
 | 1.5 自部署与离线 | 未开始 | — | 依赖 1.1-1.4 |

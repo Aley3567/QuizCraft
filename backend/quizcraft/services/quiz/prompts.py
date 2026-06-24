@@ -192,6 +192,54 @@ def build_step2_short_answer_messages(
     return [Message(role="system", content=system), Message(role="user", content=user)]
 
 
+def build_step2_fill_blank_messages(
+    concept,
+    section,
+    *,
+    n: int = 2,
+    difficulty_range: list[str] | None = None,
+    bloom_distribution: dict | None = None,
+) -> list[Message]:
+    """Step2 填空题：基于概念 + 文档原文生成 n 道填空题，题干含 ____ 占位，带参考答案 answer_text。
+
+    子系统2：填空题型生成。answer_text 作为标准参考答案（评分依据，单个最佳答案），
+    评分在答题时由本地 normalize 匹配完成（确定性，不调 LLM）。填空题无 options/correct_option_index。
+
+    - difficulty_range / bloom_distribution：同选择题的约束语义（透传 prompt）
+    - Bloom 完整四层，explanation 开头简述为何定该层级
+    """
+    diff_clause = (
+        f"difficulty 只能取 {_fmt_list(difficulty_range)}（不得取其他难度）。\n"
+        if difficulty_range
+        else 'difficulty 取 "easy"、"medium" 或 "hard"。\n'
+    )
+    bloom_dist_clause = (
+        f"题目 Bloom 层级分布应大致符合：{_fmt_dist(bloom_distribution)}；\n"
+        if bloom_distribution
+        else ""
+    )
+    system = (
+        "你是出题专家。基于给定概念和文档原文，生成填空题（fill_blank）。\n"
+        f"生成 {n} 道题，每题题干中用一个 ____ 占位表示空缺，参考答案 answer_text 必须能从给定文档原文"
+        "明确推导出来且答案唯一明确（避免歧义多解）。\n"
+        + diff_clause
+        + bloom_dist_clause
+        + 'bloom_level 取 "记忆"、"理解"、"应用" 或 "分析"，并在 explanation 开头简述为何定为该层级。\n'
+        "每题必须附带文档原文 source_text（必须来自给定文档片段）。\n"
+        "严格只返回 JSON，不要输出任何解释或额外文字，格式：\n"
+        '{"questions": [{"stem": "题干含____占位", "answer_text": "参考答案", '
+        '"explanation": "解析", "bloom_level": "记忆", "difficulty": "easy", '
+        '"source_text": "文档原文片段"}]}'
+    )
+    user = (
+        f"概念：{concept.name}\n"
+        f"概念描述：{concept.description or ''}\n"
+        f"文档原文片段（章节：{section.section_path}，页码：{section.page_number}）：\n"
+        f"{section.content}"
+    )
+    return [Message(role="system", content=system), Message(role="user", content=user)]
+
+
 def build_short_answer_eval_messages(
     question, *, student_answer: str, section_content: str
 ) -> list[Message]:
@@ -231,10 +279,17 @@ def build_feedback_messages(
     """答题反馈：据学生作答 + 文档原文，生成引用课件具体段落的解释（非通用解析）。
 
     对齐 DESIGN_DECISIONS 4.3：错题反馈必须引用用户文档原文（页码 + 章节路径 + 片段）。
-    question: {stem, options, correct_option_index, explanation, source_span}
+    兼容填空题（options 为空，无正确选项下标）：空选项时展示占位提示 + 参考答案 answer_text。
+    question: {stem, options, correct_option_index, explanation, source_span, answer_text}
     """
-    options_text = "\n".join(f"{i}. {o}" for i, o in enumerate(question.options))
-    span = question.source_span or {}
+    options = getattr(question, "options", None) or []
+    if options:
+        options_text = "\n".join(f"{i}. {o}" for i, o in enumerate(options))
+    else:
+        options_text = "（填空题，无选项）"
+    answer_text = getattr(question, "answer_text", None)
+    answer_line = f"参考答案：{answer_text}\n" if answer_text else ""
+    span = getattr(question, "source_span", None) or {}
     page = span.get("page")
     section_path = span.get("section_path", "")
     source_text = span.get("text", "")
@@ -250,8 +305,9 @@ def build_feedback_messages(
         f"题干：{question.stem}\n"
         f"选项：\n{options_text}\n"
         f"学生选择下标：{selected_option_index}（{verdict}）\n"
-        f"正确答案下标：{question.correct_option_index}\n"
-        f"课件页码：{page}\n"
+        f"正确答案下标：{getattr(question, 'correct_option_index', None)}\n"
+        + answer_line
+        + f"课件页码：{page}\n"
         f"章节路径：{section_path}\n"
         f"课件原文片段：{source_text}\n"
         f"题目预设解析：{question.explanation or ''}\n"

@@ -304,3 +304,56 @@ async def test_generate_quiz_interleaves_by_concept(session, client, llm_mock):
     # QuizSession.question_ids 与响应 questions 顺序一致（均为交错后顺序）
     qids = resp.json()["quiz_session"]["question_ids"]
     assert qids == [q["id"] for q in questions]
+
+
+STEP2_FILL = (
+    '{"questions": [{"stem": "光反应发生在____上。", "answer_text": "类囊体膜", '
+    '"explanation": "考察光反应部位。", "bloom_level": "记忆", "difficulty": "easy", '
+    '"source_text": "光反应发生在类囊体膜上。"}]}'
+)
+
+
+async def test_generate_quiz_fill_blank_type(session, client, llm_mock):
+    """子系统2：question_types=['fill_blank'] → 生成填空题落库，QuestionOut 含 answer_text，无 options。"""
+    doc_id = await _seed_document(session)
+    llm_mock.set_responses([STEP1, STEP2_FILL])
+
+    resp = await client.post(
+        f"/api/documents/{doc_id}/generate-quiz",
+        json={"question_types": ["fill_blank"]},
+    )
+    assert resp.status_code == HTTP_201_CREATED, resp.text
+    body = resp.json()
+
+    q = body["questions"][0]
+    assert q["question_type"] == "fill_blank"
+    assert q["stem"] == "光反应发生在____上。"
+    assert q["answer_text"] == "类囊体膜"
+    assert q["correct_option_index"] is None
+    assert q["options"] == []
+    assert q["source_span"]["page"] == 12
+    assert q["self_eval_score"] is None  # 填空跳过生成期自评
+
+
+async def test_generate_quiz_fill_blank_answer_text_persisted(session, client, llm_mock):
+    """子系统2：填空参考答案 answer_text 落库可回查（答题时确定性评分依赖此字段）。"""
+    doc_id = await _seed_document(session)
+    llm_mock.set_responses([STEP1, STEP2_FILL])
+    resp = await client.post(
+        f"/api/documents/{doc_id}/generate-quiz",
+        json={"question_types": ["fill_blank"]},
+    )
+    assert resp.status_code == HTTP_201_CREATED
+    question_id = resp.json()["questions"][0]["id"]
+
+    from sqlalchemy import select
+
+    from quizcraft.models.quiz import Question, QuestionType
+
+    q = (
+        await session.execute(select(Question).where(Question.id == question_id))
+    ).scalar_one()
+    assert q.question_type == QuestionType.FILL_BLANK
+    assert q.answer_text == "类囊体膜"
+    assert q.correct_option_index is None
+    assert q.options == []
