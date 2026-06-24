@@ -7,19 +7,20 @@
 
 **STATUS: IN PROGRESS**
 
-- 当前切片：**Phase 1 切片 1.2（LLM 配置与出题增强）** —— 子系统 1-6 后端全部完成，进行中
-- 上一轮完成：切片 1.2 子系统 4 题目预览编辑后端（Question.in_practice_pool 字段 + PUT /api/questions/{id}
-  编辑按题型校验 + DELETE 删除清理引用会话 question_ids + POST /publish 确认进池 + GET /drafts 草稿预览
-  + generate-quiz auto_publish 参数默认 True 保留 1.1 生成即进池闭环 / False 生成草稿待确认），新增 15 测（累计 166）
-- 下一步：子系统 1 后端增量"运行时改用 DB 配置"（让已存 DB 配置生效），或前端轮次（Settings/出题配置/
-  预览编辑/标记坏题 UI 需 yufeng 浏览器验证），或收口 1.2 后端后推进切片 1.3 闪卡 FSRS（依赖 1.1+1.2 已满足）
+- 当前切片：**Phase 1 切片 1.2（LLM 配置与出题增强）** —— 子系统 1-6 后端全部完成（含子系统1
+  运行时 DB 配置收口），可运行后端工作已耗尽，进行中
+- 上一轮完成：切片 1.2 子系统1 运行时 DB 配置增量（get_llm_client 由 sync 改 async generator，
+  优先读 DB settings、回退 env；resolve_llm_settings 纯解析逻辑 DB 优先/解密失败回退 env；
+  model_copy 保留其他字段；DB 配置构造失败不静默降级到 mock 而是路由 500），新增 8 测（累计 174）
+- 下一步：切片 1.2 可运行后端已耗尽（剩余前端需浏览器 / 异步轮询需真实 LLM，皆 blocker）。
+  若 monitor 判定 1.2 后端完成 → 推进切片 1.3 闪卡 FSRS（依赖 1.1+1.2 已满足）
 
 ## 切片完成情况
 
 | 切片 | 状态 | progress 文件 | 备注 |
 |------|------|---------------|------|
 | 1.1 最小出题闭环 | COMPLETE | docs/progress/SLICE_1_1.md | 6 子系统全完成，后端 71 测 + 前端 21 测绿；真实 LLM/真实 PDF fixture 待 yufeng |
-| 1.2 LLM 配置与出题增强 | IN PROGRESS | docs/progress/SLICE_1_2.md | 子系统 1-6 后端全部完成（加密存储+API+连通测试 / 出题参数+Bloom四层 / 简答评分0-1+混合结算 / 交叉出题+标记坏题 / 完整6维自评+可配阈值 / 预览编辑+删除+确认进池+auto_publish，15 新测累计 166）；前端 + 子系统1运行时DB配置 + 子系统3异步轮询待 |
+| 1.2 LLM 配置与出题增强 | IN PROGRESS | docs/progress/SLICE_1_2.md | 子系统 1-6 后端全部完成（含子系统1 运行时 DB 配置收口：加密存储+API+连通测试 / 出题参数+Bloom四层 / 简答评分0-1+混合结算 / 交叉出题+标记坏题 / 完整6维自评+可配阈值 / 预览编辑+删除+确认进池+auto_publish / 运行时 DB 配置优先 env 回退，8 新测累计 174）；可运行后端已耗尽，剩余前端+异步轮询皆 blocker |
 | 1.3 闪卡与 FSRS | 未开始 | — | 依赖 1.1+1.2 |
 | 1.4 DOCX 与分层解析 | 未开始 | — | 依赖 1.1+1.2 |
 | 1.5 自部署与离线 | 未开始 | — | 依赖 1.1-1.4 |
@@ -85,9 +86,20 @@
   `generate-quiz` auto_publish 参数（True 进池 / False 草稿）。GET 练习池列表 now 排除草稿 + flagged。
   前端预览编辑界面留前端轮次。
 
+### 切片 1.2 子系统 1 运行时 DB 配置（轮次 7）
+
+- `get_llm_client` 由 sync 改 async generator（`Depends(get_session)` 复用请求级 session），
+  优先 `resolve_llm_settings` 读 DB settings → `make_llm_client(resolved)`，未配置或解密失败回退 env。
+  `resolve_llm_settings` 用 `settings.model_copy(update={4 个 llm 字段})` 保留 secret_key 等，
+  DB model 空用 env 兜底。DB 配置已解密但 make_llm_client 构造失败（openai 在缺 socksio 代理环境）
+  **不静默降级到 mock**——让错误上浮路由 500，避免用户配 openai 却默默用 mock 出错题。
+- 探针验证 FastAPI 0.138.0 sync-value override 对 async-gen 依赖有效 → 现有 `llm_mock` fixture 零破坏。
+- 路由集成测试覆盖真实 async-gen get_llm_client 经 Depends 解析（现有测试全 override，改签名后必须有
+  路由级测试证明接线未坏，同「ASGITransport 掩盖真机」教训）。8 新测累计 174 全绿。
+
 ## Blockers（跨切片，待 yufeng 外部资源）
 
-- **真实 LLM key**：全部 LLM 调用用 MockLLMClient 覆盖；真实出题/反馈质量、Bloom 分布、干扰项是否真基于常见误解待 yufeng 真实 key 验证
+- **真实 LLM key**：全部 LLM 调用用 MockLLMClient 覆盖；真实出题/反馈质量、Bloom 分布、干扰项是否真基于常见误解待 yufeng 真实 key 验证。运行时 DB 配置为 openai 时 AsyncOpenAI 构造失败同切片 1.1 SOCKS blocker。
 - **真实 10-50 页课件 PDF fixture**（含复杂排版/扫描页）：解析质量待样本验证；L2/L3 分层路由在切片 1.4
 - **前端浏览器人机交互**：无 Playwright 自动化，待 yufeng `cd frontend && npm run dev` 实地验证
 - **SOCKS 代理环境**：openai SDK 构造 AsyncOpenAI 在带 SOCKS 代理的本机缺 socksio 会失败（测试已 monkeypatch 规避），真实部署需注意
@@ -96,7 +108,7 @@
   审查超长行（已确保无新引入的函数调用超长行；剩余超长行均为 docstring/注释/字符串字面量，ruff format
   不拆，与原代码一致）。monitor 复跑 `uvx ruff format --check backend` 若失败多为网络问题非代码问题；
   yufeng 可在有网环境 `uv tool install ruff` 后复验。
-- **is_flagged 新字段真机 DB 迁移**：轮次5 给 questions 表加 is_flagged 列。测试内存 DB 不受影响；
+- **is_flagged / in_practice_pool 新字段真机 DB 迁移**：轮次5/6 给 questions 表加列。测试内存 DB 不受影响；
   真机 dev DB 文件若已存在，create_all 不 ALTER 加列 → 端点报错，需删库重建（同 create_all 单机限制）。
 
 ## 约定

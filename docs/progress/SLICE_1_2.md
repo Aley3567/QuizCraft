@@ -6,8 +6,11 @@
 
 ## 当前状态
 
-子系统 1-6 后端完成（LLM 配置 + 出题参数 + 简答评分 + 交叉出题/标记坏题 + 完整 6 维自评 +
-题目预览编辑/删除/确认进池）。累计 166 测全绿（本轮新增 15 测）。
+子系统 1-6 后端完成（含子系统1 运行时 DB 配置增量）+ 出题参数 + 简答评分 + 交叉出题/标记坏题 +
+完整 6 维自评 + 题目预览编辑/删除/确认进池。累计 174 测全绿（本轮新增 8 测）。
+
+切片 1.2 可运行后端工作已收口：剩余全是 blocker（前端浏览器人机 / 简答异步轮询需真实 LLM）。
+下一轮若 monitor 判定 1.2 后端完成 → 推进切片 1.3（闪卡 FSRS，依赖 1.1+1.2 已满足）。
 
 - 子系统 1 后端：API key Fernet 加密存储 + KV settings 表 + GET/POST /api/settings/llm + 连通测试
 - 子系统 2 后端：出题参数 number / difficulty_range / question_types / chapter_scope /
@@ -272,12 +275,52 @@ generate-quiz 仅加 in_practice_pool 落库（LLM 路径不变，端到端用 l
 构造盲区）。ASGITransport 测试已覆盖路由语义/落库/JSON 列清理/端到端草稿闭环。故未做 uvicorn 冒烟，
 避免重复本机 SOCKS 代理干扰。
 
+### 2026-06-24 轮次 7：运行时改用 DB 配置（子系统1 后端收口增量）
+
+TDD（先红后绿），8 个新测试（4 resolve 纯逻辑 + 2 get_llm_client 依赖 + 2 路由集成），累计 174 全绿。
+一个 commit。子系统1 后端闭环的最后一块：之前 Settings 页保存的 DB 配置只能存 / 读脱敏视图，
+运行时出题/答题仍走 env（`get_llm_client` 直接 `make_llm_client(get_settings())`）。本增量让
+`get_llm_client` 优先读 DB settings，未配置或读取失败回退 env——用户配置后无需重启即生效。
+
+**解析逻辑层（`dependencies.py` `resolve_llm_settings`，新纯异步函数）**
+- `resolve_llm_settings(session, settings) -> Settings`：优先读 DB 配置（`load_llm_config`），
+  返回 `settings.model_copy(update={4 个 llm 字段})`；未配置 / 读取异常（secret 缺失或解密失败）
+  → 回退原 env settings（保守降级，不阻断出题）
+- DB 配置 model 为空 → 用 env 的 model 兜底（`db_config.model or settings.llm_model`）
+- 用 `model_copy(update=...)` 而非新建 `Settings(...)`：保留 secret_key 等其他字段，不重读 env
+
+**依赖层（`dependencies.py` `get_llm_client`，sync → async generator）**
+- `def get_llm_client() -> LLMClient` → `async def get_llm_client(session=Depends(get_session))
+  -> AsyncIterator[LLMClient]`：复用请求级 session（FastAPI sub-dependency 去重，同请求共享），
+  `resolved = await resolve_llm_settings(session, get_settings())` → `yield make_llm_client(resolved)`
+- **DB 配置已解密但 make_llm_client 构造失败不兜底**：如 openai 在缺 socksio 的代理环境
+  AsyncOpenAI 构造抛 ImportError——让错误上浮（路由 500），**不静默降级到 mock**（避免用户配了
+  openai 却默默用 mock 出错题）。回退 env 仅在「DB 读不到 / 解密失败」时发生（DB 不可信才回退）
+- **关键探针验证**：把 sync 依赖改 async-gen 后，现有 `llm_mock` fixture 的
+  `app.dependency_overrides[get_llm_client] = lambda: mock`（sync 返回值）是否仍兼容？
+  写最小 FastAPI 探针确认 FastAPI 0.138.0 下 sync-value override 对 async-gen 依赖有效——
+  override 完全替换 callable，FastAPI 按 override 类型处理，与原签名无关。故 166 现有测零破坏。
+
+**测试**：test_llm_runtime_config（8 新文件）：
+- resolve 纯逻辑×4：DB 配置→DB 字段 / 未配置→env 不变 / 解密失败→env / DB model 空→env model 兜底
+- get_llm_client 依赖×2：monkeypatch make_llm_client 为记录器，DB 配置→captured model=db-special
+  （非 env gpt-4o）；未配置→captured model=gpt-4o（env）。async gen 用 `__anext__` + `aclose` 正确收尾
+- 路由集成×2：**不请求 llm_mock**（不 override get_llm_client），让真实 async-gen 经 Depends 在
+  generate-quiz 路由解析——证明接线 + DB 配置生效（captured.llm_model==db-special）；
+  未配置→env（gpt-4o）。这是关键：现有所有 quiz/answer 测试都 override get_llm_client，
+  **无任何测试覆盖真实 get_llm_client**，改 async-gen 后必须有路由级测试证明 Depends 接线未坏
+  （同 review notes「ASGITransport 掩盖真机问题」教训——ASGITransport 路由测能抓依赖解析 bug）
+
+**未做（明确留后续）**：前端 Settings 页（写 DB 配置的 UI，需 yufeng 浏览器验证）；简答异步轮询
+（需真实 LLM）。openai DB 配置在 SOCKS 代理环境的 AsyncOpenAI 构造失败 → 路由 500（不静默降级），
+属部署环境 blocker（同切片 1.1 SOCKS blocker，真实部署装 httpx[socks] 或清代理）。
+
 ## 子系统进度（按 SLICE_PHASE_1.md 切片 1.2 任务清单）
 
 - [~] 1. LLM 配置 UI 与后端（Settings 页 + provider/key/model/base_url 存 SQLite settings 表 + POST /api/settings/llm + 测试调用连通验证）
   - [x] 后端：加密存储 + KV 表 + GET/POST API + 连通测试 —— 轮次 1
-  - [ ] 前端 Settings 页（provider 选择 + key 输入 + model/base_url + 测试按钮）
-  - [ ] 运行时出题/答题改用 DB 配置（get_llm_client 读 settings 表，fallback env）
+  - [x] 运行时出题/答题改用 DB 配置（get_llm_client 读 settings 表，fallback env）—— 轮次 7
+  - [ ] 前端 Settings 页（provider 选择 + key 输入 + model/base_url + 测试按钮）—— blocker（浏览器）
 - [ ] 2. 出题参数控制（number/difficulty_range/question_types/chapter_scope/bloom_distribution API + 前端面板 + Bloom 完整 4 层）
   - [x] 后端：参数 schema + generate_quiz 扩展 + prompt Bloom 四层 + POST body + 测试 —— 轮次 2
   - [ ] 前端出题配置面板（选择题数/难度/题型比例/章节范围）
@@ -309,32 +352,34 @@ generate-quiz 仅加 in_practice_pool 落库（LLM 路径不变，端到端用 l
 
 ## 还剩
 
-切片 1.2 子系统 1-6 后端全部完成，剩余：子系统 1 前端 + 子系统 2 前端/多题型 + 子系统 3 异步轮询 +
-子系统 4 前端（预览编辑 UI）+ 子系统 5 前端（标记坏题按钮）。下一轮可选：
-- 子系统 1 后端增量"运行时改用 DB 配置"（让已存 DB 配置生效，涉及所有路由 LLM 依赖签名变 async，
-  单独一轮做更稳妥）
-- 前端轮次（Settings 页 / 出题配置面板 / 预览编辑 / 标记坏题 UI），需 yufeng 浏览器验证
-- 或收口切片 1.2 后端（子系统 1-6 后端验收已满足）后推进切片 1.3（闪卡 FSRS，依赖 1.1+1.2 已满足）
+切片 1.2 子系统 1-6 后端全部完成（含子系统1 运行时 DB 配置收口），**可运行后端工作已耗尽**。
+剩余全是 blocker（非 agent 可推进）：
+- 前端轮次（Settings 页 / 出题配置面板 / 预览编辑 / 标记坏题 UI）—— 需 yufeng 浏览器验证
+- 子系统 3 异步评分轮询 —— 需真实 LLM（同步评分已通）
+
+下一轮若 monitor 判定 1.2 后端完成 → 推进切片 1.3（闪卡 FSRS，依赖 1.1+1.2 已满足）。
 
 ## Blockers
 
 - **真实 LLM key**：连通测试的 openai provider 真实路径需真实 key + 网络。本机 SOCKS 代理环境
   `AsyncOpenAI` 构造缺 socksio 会失败——已优雅降级为 ok=False + message（非 500），真实部署需 yufeng
   注意装 `httpx[socks]` 或清代理（同切片 1.1 blocker）。真实连通质量 + 简答 rubric 评分质量
-  待 yufeng 真实 key 验证。
+  待 yufeng 真实 key 验证。**运行时 DB 配置为 openai 时同理**：AsyncOpenAI 构造失败 → 路由 500
+  （不静默降级到 mock，避免用错配置出题），真实部署同需 socksio/清代理。
 - **QUIZCRAFT_SECRET_KEY 部署**：加密 API key 需配置 secret。未配置时含 key 的配置被 400 拒绝（保护性）；
-  mock provider 无 key 不受影响。自部署务必配置（生产安全基线）。
-- **运行时 LLM 配置来源**：本轮 DB 配置已可存可读，但运行时出题/答题仍走 `get_llm_client()`（env 配置）。
-  让运行时优先读 DB settings（fallback env）是下一增量，需改 `get_llm_client` 依赖为 async 读 DB——
-  涉及现有所有路由的 LLM 依赖签名变更，单独一轮做更稳妥。
+  运行时 `resolve_llm_settings` 读 DB 配置时 secret 缺失 → 解密失败 → 回退 env（不阻断出题，但 DB openai
+  配置不生效）。mock provider 无 key 不受影响。自部署务必配置（生产安全基线）。
+- **运行时 LLM 配置来源**：~~需改 get_llm_client 依赖为 async 读 DB~~ —— 轮次 7 已完成。
+  get_llm_client 现为 async generator，优先读 DB settings（fallback env）；用户配置后无需重启即生效。
 - **异步简答评分轮询**：本轮同步评分（提交即返回 score+feedback）。真实 LLM 评分耗时数秒到数十秒，
   同步会阻塞 HTTP。异步状态机（Answer pending→scored）+ 轮询端点留真实 LLM 接入后再做。
-- **前端浏览器人机交互**：无 Playwright 自动化，Settings 页/简答作答/标记坏题 UI 待 yufeng `cd frontend && npm run dev` 实地验证。
+- **前端浏览器人机交互**：无 Playwright 自动化，Settings 页/简答作答/标记坏题 UI 待 yufeng
+  `cd frontend && npm run dev` 实地验证。
 - **is_flagged / in_practice_pool 新字段真机 DB 迁移**：轮次5 给 questions 表加 is_flagged 列，
   轮次6 加 in_practice_pool 列。测试用内存 SQLite（conftest create_all 每次新建，含新列）不受影响；
   但真机 dev DB 文件若已存在（前轮 create_all 建的旧 questions 表无此两列），lifespan create_all
   只 CREATE TABLE IF NOT EXISTS 不 ALTER 加列 → flag/practice-pool/edit/delete/publish/drafts 端点
   命中无列报错。真机需删 dev DB 文件重建（create_all 单机原型限制，生产换 Alembic 迁移，同切片 1.1 blocker）。
-- **真机冒烟未做（判断）**：子系统4/5 是纯逻辑交错 + DB CRUD（不调 LLM、不构造外部 client，无轮次1/3
-  构造期副作用盲区）；ASGITransport 测试已覆盖路由语义、落库、查询排除、JSON 列清理、端到端草稿闭环。
-  故未做 uvicorn 真机冒烟，避免重复本机 SOCKS 代理干扰。
+- **真机冒烟未做（判断）**：轮次7 = DB 读 + model_copy（纯逻辑，不构造外部 client）+ async-gen 依赖接线
+  （ASGITransport 路由集成测试已覆盖真实 get_llm_client 经 Depends 解析）。无轮次1/3 的 AsyncOpenAI
+  构造期副作用盲区（测试用 mock DB 配置）。故未做 uvicorn 真机冒烟，避免重复本机 SOCKS 代理干扰。
