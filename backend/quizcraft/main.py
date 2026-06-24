@@ -12,6 +12,7 @@ from quizcraft.config import get_settings
 from quizcraft.db import Base
 from quizcraft.routers import (
     documents_router,
+    questions_router,
     quiz_router,
     quiz_sessions_router,
     settings_router,
@@ -59,6 +60,7 @@ app.add_middleware(
 )
 
 app.include_router(documents_router)
+app.include_router(questions_router)
 app.include_router(quiz_router)
 app.include_router(quiz_sessions_router)
 app.include_router(settings_router)

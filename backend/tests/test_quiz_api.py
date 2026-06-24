@@ -248,3 +248,59 @@ async def test_generate_quiz_self_eval_threshold_configurable(session, client, l
     body = resp.json()
     assert body["quiz_session"]["total"] == 0  # 题被自评淘汰
     assert len(body["questions"]) == 0
+
+
+async def test_generate_quiz_interleaves_by_concept(session, client, llm_mock):
+    """子系统5：多 concept 多题 → 响应 questions 与 QuizSession.question_ids 按 concept 交叉混合，
+    相邻题目来自不同 concept（不按生成顺序连出同 concept 的题）。"""
+    doc = Document(filename="lecture.pdf", page_count=1, status=DocumentStatus.COMPLETE)
+    session.add(doc)
+    await session.flush()
+    section = Section(
+        document_id=doc.id,
+        section_path="第2章 光合作用",
+        page_number=12,
+        content="光合作用内容",
+        order_index=0,
+        token_count=10,
+    )
+    session.add(section)
+    await session.commit()
+
+    step1 = (
+        '{"concepts": ['
+        '{"name": "C0", "description": "", "bloom_level": "记忆", "source_text": "光合作用内容"}, '
+        '{"name": "C1", "description": "", "bloom_level": "理解", "source_text": "光合作用内容"}'
+        "]}"
+    )
+    step2_c0 = (
+        '{"questions": ['
+        '{"stem": "C0-1", "options": ["a","b","c","d"], "correct_option_index": 0, '
+        '"explanation": "", "bloom_level": "记忆", "difficulty": "easy", "source_text": "光合作用内容"}, '
+        '{"stem": "C0-2", "options": ["a","b","c","d"], "correct_option_index": 0, '
+        '"explanation": "", "bloom_level": "记忆", "difficulty": "easy", "source_text": "光合作用内容"}'
+        "]}"
+    )
+    step2_c1 = (
+        '{"questions": ['
+        '{"stem": "C1-1", "options": ["a","b","c","d"], "correct_option_index": 0, '
+        '"explanation": "", "bloom_level": "理解", "difficulty": "easy", "source_text": "光合作用内容"}, '
+        '{"stem": "C1-2", "options": ["a","b","c","d"], "correct_option_index": 0, '
+        '"explanation": "", "bloom_level": "理解", "difficulty": "easy", "source_text": "光合作用内容"}'
+        "]}"
+    )
+    # generate_quiz 调用顺序：step1 → step2(C0) → step2(C1) → eval×4
+    llm_mock.set_responses([step1, step2_c0, step2_c1, EVAL_HIGH, EVAL_HIGH, EVAL_HIGH, EVAL_HIGH])
+
+    resp = await client.post(f"/api/documents/{doc.id}/generate-quiz")
+    assert resp.status_code == HTTP_201_CREATED, resp.text
+    questions = resp.json()["questions"]
+    assert len(questions) == 4
+
+    # 交错后相邻题目 concept 不同（stem 第二字符标识 concept：C0-x / C1-x）
+    concepts = [q["stem"][1] for q in questions]
+    assert all(concepts[i] != concepts[i + 1] for i in range(len(concepts) - 1))
+
+    # QuizSession.question_ids 与响应 questions 顺序一致（均为交错后顺序）
+    qids = resp.json()["quiz_session"]["question_ids"]
+    assert qids == [q["id"] for q in questions]

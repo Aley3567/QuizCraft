@@ -195,6 +195,38 @@ def filter_sections_by_scope(sections, chapter_scope: list[str] | None) -> list:
     return [s for s in sections if any(kw in s.section_path for kw in chapter_scope)]
 
 
+def interleave_questions(
+    questions: list[GeneratedQuestion],
+) -> list[GeneratedQuestion]:
+    """按 concept 与 question_type 交叉混合题目（子系统5），使相邻题目尽量来自不同 concept。
+
+    策略：以 concept_index 为主分组做 round-robin 轮转——每轮从各非空组各取一题，
+    相邻两题自然来自不同 concept（当最大组题数 <= 其余组题数之和 + 1，即"可调度"时相邻全不同；
+    超出则末尾不可避免相邻，属数学极限）。组内按 (question_type, 原序) 排序使题型也尽量打散。
+
+    纯逻辑，不改变题目集合，仅重排；结果稳定（同一输入恒定输出），便于测试与可重现。
+    供 router 在落库前对 generate_quiz 产出的题目做交叉排列，使 QuizSession.question_ids
+    不按文档/生成顺序连出同一 concept 的题。
+    """
+    if not questions:
+        return []
+    # 按 concept_index 分组；组内按 question_type 排序（题型打散），稳定排序保留原序作 tiebreak
+    groups: dict[int, list[GeneratedQuestion]] = {}
+    for q in questions:
+        groups.setdefault(q.concept_index, []).append(q)
+    queues: list[list[GeneratedQuestion]] = []
+    for key in sorted(groups):
+        queues.append(sorted(groups[key], key=lambda x: x.question_type))
+    # 按组大小降序，避免小组先取完导致末尾同组堆积
+    queues.sort(key=len, reverse=True)
+    result: list[GeneratedQuestion] = []
+    while any(queues):
+        for q in queues:
+            if q:
+                result.append(q.pop(0))
+    return result
+
+
 async def generate_quiz(
     sections: list[DocumentSection],
     llm: LLMClient,

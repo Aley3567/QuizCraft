@@ -22,7 +22,7 @@ from quizcraft.schemas.quiz import (
     QuizSessionOut,
 )
 from quizcraft.services.llm import LLMClient
-from quizcraft.services.quiz import filter_sections_by_scope, generate_quiz
+from quizcraft.services.quiz import filter_sections_by_scope, generate_quiz, interleave_questions
 
 router = APIRouter(prefix="/api/documents", tags=["quiz"])
 
@@ -91,6 +91,10 @@ async def generate_quiz_for_document(
         gen_kwargs["self_eval_threshold"] = params.self_eval_threshold
     gen = await generate_quiz(sections, llm, **gen_kwargs)
 
+    # 子系统5：按 concept 交叉混合题目顺序，使 QuizSession 相邻题来自不同 concept
+    # （不按文档/生成顺序连出同 concept 的题）；不影响 concept 落库顺序
+    interleaved_questions = interleave_questions(gen.questions)
+
     # 落库 Concepts（保留 ORM 引用，供 Question 外键与响应回填）
     concept_orm: list[Concept] = []
     for gc in gen.concepts:
@@ -108,8 +112,9 @@ async def generate_quiz_for_document(
         concept_orm.append(concept)
 
     # 落库 Questions（按题型落对应字段：选择题 options/correct_option_index，简答题 answer_text）
+    # 子系统5：按交错后顺序落库，question_ids 与响应 questions 均为交叉混合顺序
     question_orm: list[Question] = []
-    for gq in gen.questions:
+    for gq in interleaved_questions:
         section = sections[gq.section_index]
         concept_id = (
             concept_orm[gq.concept_index].id
@@ -152,6 +157,27 @@ async def generate_quiz_for_document(
         questions=[QuestionOut.model_validate(q) for q in question_orm],
         concepts=[ConceptOut.model_validate(c) for c in concept_orm],
     )
+
+
+@router.get("/{document_id}/questions", response_model=list[QuestionOut])
+async def list_practice_pool_questions(
+    document_id: int,
+    session: AsyncSession = Depends(get_session),
+) -> list[QuestionOut]:
+    """列出文档练习池题目（子系统5）：排除 is_flagged=True 的坏题（已移出 practice pool）。
+
+    子系统4 预览编辑的列表基础；本轮只读（编辑/删除/确认进池留子系统4）。
+    """
+    doc = await session.get(Document, document_id)
+    if doc is None:
+        raise HTTPException(status_code=404, detail="文档不存在")
+    result = await session.execute(
+        select(Question)
+        .where(Question.document_id == document_id, Question.is_flagged.is_(False))
+        .order_by(Question.id)
+    )
+    questions = result.scalars().all()
+    return [QuestionOut.model_validate(q) for q in questions]
 
 
 __all__ = ["router"]

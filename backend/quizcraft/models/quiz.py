@@ -59,6 +59,8 @@ class Question(TimestampMixin, Base):
     difficulty: Mapped[str | None] = mapped_column(String(32), nullable=True)
     # 简化自评分数（accuracy + source-grounding 两维度，完整 6 维度延后到切片 1.2）
     self_eval_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # 子系统5：标记坏题（is_flagged=True → 移出 practice pool，练习池列表不再返回）
+    is_flagged: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
 
 class QuizSession(TimestampMixin, Base):

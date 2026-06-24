@@ -43,6 +43,8 @@ class QuestionOut(BaseModel):
     bloom_level: str | None
     difficulty: str | None
     self_eval_score: float | None
+    # 子系统5：坏题标记（True → 已移出 practice pool）
+    is_flagged: bool
 
 
 class QuizSessionOut(BaseModel):

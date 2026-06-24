@@ -7,11 +7,11 @@
 
 **STATUS: IN PROGRESS**
 
-- 当前切片：**Phase 1 切片 1.2（LLM 配置与出题增强）** —— 子系统 1/2/3/6 后端完成，进行中
-- 上一轮完成：切片 1.2 子系统 6 完整 6 维自评（accuracy/clarity/difficulty/source_grounding/
-  non_trivial/non_ambiguous + 向后兼容部分维度取平均 + 可配阈值默认 2/3 等价总分 4 + self_eval_scores
-  明细 + router 语义区分修复），新增 5 测（累计 136）
-- 下一步：子系统 5 交叉出题 + 标记坏题后端（纯逻辑 + DB 字段/API，可完整测试，无前端 blocker），
+- 当前切片：**Phase 1 切片 1.2（LLM 配置与出题增强）** —— 子系统 1/2/3/5/6 后端完成，进行中
+- 上一轮完成：切片 1.2 子系统 5 交叉出题 + 标记坏题后端（interleave_questions 纯函数 round-robin by
+  concept + router 落库前交错 + Question.is_flagged + POST/DELETE /api/questions/{id}/flag + GET
+  /api/documents/{id}/questions 练习池列表排除 flagged + QuestionOut.is_flagged），新增 15 测（累计 151）
+- 下一步：子系统 4 题目预览编辑后端（GET 列表已有基础，补编辑/删除/确认进 practice pool），
   或子系统 1 后端增量"运行时改用 DB 配置"（让已存 DB 配置生效）
 
 ## 切片完成情况
@@ -19,7 +19,7 @@
 | 切片 | 状态 | progress 文件 | 备注 |
 |------|------|---------------|------|
 | 1.1 最小出题闭环 | COMPLETE | docs/progress/SLICE_1_1.md | 6 子系统全完成，后端 71 测 + 前端 21 测绿；真实 LLM/真实 PDF fixture 待 yufeng |
-| 1.2 LLM 配置与出题增强 | IN PROGRESS | docs/progress/SLICE_1_2.md | 子系统 1-3+6 后端完成（加密存储+API+连通测试 / 出题参数+Bloom四层 / 简答评分0-1+混合结算 / 完整6维自评+可配阈值，5 新测）；前端 + 子系统 4-5 + 异步轮询待 |
+| 1.2 LLM 配置与出题增强 | IN PROGRESS | docs/progress/SLICE_1_2.md | 子系统 1-3+5+6 后端完成（加密存储+API+连通测试 / 出题参数+Bloom四层 / 简答评分0-1+混合结算 / 交叉出题+标记坏题 / 完整6维自评+可配阈值，15 新测）；前端 + 子系统 4 + 异步轮询待 |
 | 1.3 闪卡与 FSRS | 未开始 | — | 依赖 1.1+1.2 |
 | 1.4 DOCX 与分层解析 | 未开始 | — | 依赖 1.1+1.2 |
 | 1.5 自部署与离线 | 未开始 | — | 依赖 1.1-1.4 |
@@ -68,6 +68,14 @@
   各维度明细（内存不落库）；`QuizGenerationRequest.self_eval_threshold` 可配 + router 条件传参
   （区分 schema None=用默认 vs generate_quiz None=跳过自评，避免默认出题静默跳过自评）。
 
+### 切片 1.2 子系统 5（轮次 5）
+
+- 交叉出题 + 标记坏题后端：`interleave_questions` 纯函数（concept round-robin 轮转，相邻题不同 concept，
+  组内按 question_type 打散，稳定可重现）+ router 落库前交错（question_ids/响应均为交错顺序，单题零破坏）；
+  `Question.is_flagged` 字段 + `routers/questions.py`（POST/DELETE /api/questions/{id}/flag 幂等）+
+  `GET /api/documents/{id}/questions` 练习池列表（排除 is_flagged=True，"移出 practice pool" 可测行为）+
+  QuestionOut.is_flagged。前端标记按钮/交叉展示 + 编辑/删除/确认进池（子系统4）留后续。
+
 ## Blockers（跨切片，待 yufeng 外部资源）
 
 - **真实 LLM key**：全部 LLM 调用用 MockLLMClient 覆盖；真实出题/反馈质量、Bloom 分布、干扰项是否真基于常见误解待 yufeng 真实 key 验证
@@ -79,6 +87,8 @@
   审查超长行（已确保无新引入的函数调用超长行；剩余超长行均为 docstring/注释/字符串字面量，ruff format
   不拆，与原代码一致）。monitor 复跑 `uvx ruff format --check backend` 若失败多为网络问题非代码问题；
   yufeng 可在有网环境 `uv tool install ruff` 后复验。
+- **is_flagged 新字段真机 DB 迁移**：轮次5 给 questions 表加 is_flagged 列。测试内存 DB 不受影响；
+  真机 dev DB 文件若已存在，create_all 不 ALTER 加列 → 端点报错，需删库重建（同 create_all 单机限制）。
 
 ## 约定
 

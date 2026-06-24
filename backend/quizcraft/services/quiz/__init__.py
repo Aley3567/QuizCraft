@@ -5,6 +5,7 @@ from quizcraft.services.quiz.generator import (
     QuizGenerationResult,
     filter_sections_by_scope,
     generate_quiz,
+    interleave_questions,
 )
 from quizcraft.services.quiz.prompts import (
     build_eval_messages,
@@ -27,5 +28,6 @@ __all__ = [
     "build_step2_short_answer_messages",
     "filter_sections_by_scope",
     "generate_quiz",
+    "interleave_questions",
     "score_short_answer",
 ]
