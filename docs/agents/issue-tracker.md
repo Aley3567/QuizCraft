@@ -18,3 +18,9 @@ Before an unattended implementation run, the monitor should build a local queue 
 - `.codex-loop/queue.md` for human-readable review
 
 The queue snapshot is derived from GitHub issues, labels, issue bodies, local progress files, and dependency rules.
+
+## Drain Mode
+
+For unattended Ralph runs, the monitor should keep invoking the Claude/Ralph runner while `.codex-loop/queue.json` has claimable work. It stops and notifies yufeng when no claimable work remains because the rest is blocked, human-owned, missing information, under review, already in progress, complete, wontfix, or otherwise gated.
+
+Run only one Ralph implementation process per git worktree. Parallel work requires separate worktrees, separate locks/logs, and non-overlapping write scopes.

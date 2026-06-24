@@ -29,7 +29,13 @@ QuizCraft follows a Matt Pocock-style triage state machine, with one type label 
 
 Ralph may execute only issues that are both:
 
-- labeled `ready-for-agent`
 - claimable now after local dependency evaluation
+- free of constraining state labels such as `blocked-by-dependency`, `ready-for-human`, `needs-info`, `needs-review`, `agent-in-progress`, `done`, or `wontfix`
 
-If an issue is `ready-for-agent` but has `Claimable now: no`, a `blocked-by-dependency` label, a `ready-for-human` label, or unsatisfied local dependencies, Ralph must skip it and write the reason into the local queue snapshot.
+If an issue has `Claimable now: no`, a constraining state label, or unsatisfied local dependencies, Ralph must skip it and write the reason into the local queue snapshot.
+
+## Drain Rule
+
+The Ralph monitor should keep invoking the Claude/Ralph runner while the queue has claimable work. It stops only when the global progress is complete, a run fails, a no-progress guard fires, or every unfinished item is constrained by dependency, human ownership, missing info, review, in-progress, done/wontfix, or another explicit gate.
+
+Parallel Ralph execution is allowed only across isolated git worktrees with separate locks, logs, and branches. Do not run two implementation agents against the same worktree.
