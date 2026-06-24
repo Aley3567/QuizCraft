@@ -219,6 +219,7 @@ a.link {
 }
 
 .field input,
+.field select,
 .field textarea {
   width: 100%;
   border: 1px solid var(--border);
@@ -238,4 +239,55 @@ a.link {
   flex-wrap: wrap;
   gap: 10px;
   margin-top: 14px;
+}
+
+.controls h2 {
+  margin: 0 0 4px;
+  font-size: 18px;
+}
+
+.control-grid {
+  display: grid;
+  grid-template-columns: minmax(120px, 180px) 1fr;
+  gap: 12px;
+}
+
+.choice-group {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  margin: 12px 0;
+}
+
+.choice-group legend {
+  color: var(--muted);
+  font-size: 13px;
+  padding: 0 6px;
+}
+
+.choice-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.check-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.check-pill input {
+  margin: 0;
+}
+
+@media (max-width: 640px) {
+  .control-grid {
+    grid-template-columns: 1fr;
+  }
 }

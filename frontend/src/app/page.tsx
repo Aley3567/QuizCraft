@@ -5,9 +5,15 @@ import { generateDraftQuiz } from "@/lib/api";
 import { Uploader } from "@/components/Uploader";
 import { DocumentSummary } from "@/components/DocumentSummary";
 import { DraftReview } from "@/components/DraftReview";
+import { GenerationControls } from "@/components/GenerationControls";
 import { QuizPlayer } from "@/components/QuizPlayer";
 import { ResultView } from "@/components/ResultView";
-import type { AnswerOut, DocumentDetail, QuizGenerationResponse } from "@/lib/types";
+import type {
+  AnswerOut,
+  DocumentDetail,
+  DraftQuizGenerationRequest,
+  QuizGenerationResponse,
+} from "@/lib/types";
 
 type Stage = "idle" | "uploaded" | "reviewing" | "quizzing" | "done";
 
@@ -32,12 +38,12 @@ export default function Page() {
     setBusy(false);
   }
 
-  async function onGenerate() {
+  async function onGenerate(request: DraftQuizGenerationRequest) {
     if (!doc) return;
     setBusy(true);
     setError(null);
     try {
-      const gen = await generateDraftQuiz(doc.id);
+      const gen = await generateDraftQuiz(doc.id, request);
       setQuiz(gen);
       setAnswers({});
       setStage("reviewing");
@@ -67,14 +73,12 @@ export default function Page() {
       {stage === "uploaded" && doc && (
         <>
           <DocumentSummary doc={doc} />
-          <div className="card" style={{ display: "flex", gap: 12 }}>
-            <button className="btn" disabled={busy} onClick={onGenerate}>
-              {busy ? "出题中…" : "生成草稿题"}
-            </button>
-            <button className="btn btn-ghost" onClick={reset}>
-              换一份
-            </button>
-          </div>
+          <GenerationControls
+            doc={doc}
+            busy={busy}
+            onGenerate={onGenerate}
+            onReset={reset}
+          />
         </>
       )}
 

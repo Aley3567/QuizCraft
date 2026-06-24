@@ -104,6 +104,47 @@ describe("draft review API", () => {
     expect(result.questions[0].in_practice_pool).toBe(false);
   });
 
+  it("生成草稿时把题数、章节、难度和 Bloom 参数传给后端", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        quiz_session: {
+          id: 1,
+          document_id: 5,
+          question_ids: [7],
+          status: "in_progress",
+          score: null,
+          total: 1,
+          created_at: null,
+        },
+        questions: [question],
+        concepts: [],
+      }),
+    );
+
+    await generateDraftQuiz(5, {
+      number: 3,
+      chapter_scope: ["第2章 光合作用"],
+      difficulty_range: ["easy"],
+      bloom_distribution: { 记忆: 0.5, 应用: 0.5 },
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:8000/api/documents/5/generate-quiz",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          number: 3,
+          chapter_scope: ["第2章 光合作用"],
+          difficulty_range: ["easy"],
+          bloom_distribution: { 记忆: 0.5, 应用: 0.5 },
+          auto_publish: false,
+        }),
+      },
+    );
+  });
+
   it("读取草稿题列表用于预览", async () => {
     const fetchMock = vi.mocked(fetch);
     fetchMock.mockResolvedValueOnce(jsonResponse([question]));

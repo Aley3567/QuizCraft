@@ -73,6 +73,20 @@ export interface QuizGenerationResponse {
   concepts: ConceptOut[];
 }
 
+export interface QuizGenerationRequest {
+  number?: number;
+  difficulty_range?: string[];
+  question_types?: string[];
+  chapter_scope?: string[];
+  bloom_distribution?: Record<string, number>;
+  concepts_per_section?: number;
+  questions_per_concept?: number;
+  self_eval_threshold?: number;
+  auto_publish?: boolean;
+}
+
+export type DraftQuizGenerationRequest = Omit<QuizGenerationRequest, "auto_publish">;
+
 export interface AnswerOut {
   id: number;
   quiz_session_id: number;

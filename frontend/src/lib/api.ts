@@ -7,8 +7,10 @@
 import type {
   AnswerOut,
   DocumentDetail,
+  DraftQuizGenerationRequest,
   QuestionOut,
   QuestionUpdateRequest,
+  QuizGenerationRequest,
   QuizGenerationResponse,
 } from "./types";
 
@@ -63,7 +65,7 @@ export async function uploadDocument(file: File): Promise<DocumentDetail> {
 /** 出题：对文档执行两步生成，返回答题会话 + 题目 + 概念。 */
 export async function generateQuiz(
   documentId: number,
-  body?: { auto_publish?: boolean },
+  body?: QuizGenerationRequest,
 ): Promise<QuizGenerationResponse> {
   const init: RequestInit =
     body == null
@@ -79,8 +81,11 @@ export async function generateQuiz(
 }
 
 /** 生成草稿题：题目先留在 draft review，不进入 practice pool。 */
-export function generateDraftQuiz(documentId: number): Promise<QuizGenerationResponse> {
-  return generateQuiz(documentId, { auto_publish: false });
+export function generateDraftQuiz(
+  documentId: number,
+  body?: DraftQuizGenerationRequest,
+): Promise<QuizGenerationResponse> {
+  return generateQuiz(documentId, { ...body, auto_publish: false });
 }
 
 /** 读取文档草稿题，供前端预览/编辑/发布。 */
