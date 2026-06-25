@@ -22,6 +22,7 @@ from quizcraft.schemas.flashcard import (
     FlashcardOut,
     FlashcardReviewOut,
     FlashcardReviewRequest,
+    FlashcardUpdate,
 )
 from quizcraft.services.settings import load_review_settings
 
@@ -213,6 +214,28 @@ async def create_flashcards_from_concepts(
 
     await session.commit()
     return [FlashcardOut.model_validate(cards_by_concept_id[item_id]) for item_id in concept_ids]
+
+
+@router.put("/{flashcard_id}", response_model=FlashcardOut)
+async def update_flashcard(
+    flashcard_id: int,
+    body: FlashcardUpdate,
+    session: AsyncSession = Depends(get_session),
+) -> FlashcardOut:
+    """Update flashcard content fields used by management workflows."""
+    card = await session.get(Flashcard, flashcard_id)
+    if card is None:
+        raise HTTPException(status_code=404, detail="闪卡不存在")
+    if body.front is None and body.back is None:
+        raise HTTPException(status_code=400, detail="front/back 至少更新一项")
+
+    if body.front is not None:
+        card.front = body.front
+    if body.back is not None:
+        card.back = body.back
+
+    await session.commit()
+    return FlashcardOut.model_validate(card)
 
 
 __all__ = ["router"]

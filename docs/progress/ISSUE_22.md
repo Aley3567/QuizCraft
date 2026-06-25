@@ -35,11 +35,33 @@ constrains the public `GET /api/flashcards/due` query.
 
 ## Remaining Acceptance Items
 
-- User can edit flashcard front and back text.
 - Desired retention setting should influence scheduling behavior, not just be
   persisted.
 - Forecast should cover the next 7 days at a basic count level.
 - Flashcard management UI still needs edit/settings/forecast controls.
+
+## 2026-06-25 Ralph iteration 2
+
+Completed first local management-flow increment for #22:
+added `PUT /api/flashcards/{id}` to edit flashcard `front` and/or `back`,
+returning the persisted card and rejecting empty edits.
+
+### What Changed
+
+- Added `FlashcardUpdate` request schema with optional `front` and `back`.
+- Added backend route `PUT /api/flashcards/{flashcard_id}`:
+  - 404 if card not found
+  - 400 if neither `front` nor `back` is provided
+  - persists provided fields and returns `FlashcardOut`
+- Added flashcard content edit behavior test coverage in
+  `backend/tests/test_flashcards_api.py`.
+
+### Verification
+
+- `uv run pytest backend/tests/test_flashcards_api.py -q`
+  - `10 passed, 7 warnings`
+- `git diff --check`
+  - Passed
 
 ## Blockers
 

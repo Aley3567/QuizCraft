@@ -413,6 +413,38 @@ async def test_review_settings_daily_new_limit_reduces_due_cards(session, client
     assert [item["id"] for item in limited_due_resp.json()] == created_ids[:2]
 
 
+async def test_update_flashcard_front_and_back(session, client):
+    """Editing a flashcard front/back via PUT updates persisted fields."""
+    _document_id, concept_id, _quiz_id, _question_id = await _seed_concept_question(session)
+
+    create_resp = await client.post(
+        "/api/flashcards/from-concepts",
+        json={"concept_ids": [concept_id]},
+    )
+    assert create_resp.status_code == 201, create_resp.text
+    card_id = create_resp.json()[0]["id"]
+
+    put_resp = await client.put(
+        f"/api/flashcards/{card_id}",
+        json={
+            "front": "新前面：什么是光反应？",
+            "back": "新反面：光合作用中依赖光能的反应阶段。",
+        },
+    )
+    assert put_resp.status_code == 200, put_resp.text
+    updated = put_resp.json()
+    assert updated["id"] == card_id
+    assert updated["front"] == "新前面：什么是光反应？"
+    assert updated["back"] == "新反面：光合作用中依赖光能的反应阶段。"
+
+    get_resp = await client.get("/api/flashcards?concept_id=%s" % concept_id)
+    assert get_resp.status_code == 200, get_resp.text
+    cards = get_resp.json()
+    assert len(cards) == 1
+    assert cards[0]["front"] == "新前面：什么是光反应？"
+    assert cards[0]["back"] == "新反面：光合作用中依赖光能的反应阶段。"
+
+
 @pytest.mark.parametrize(
     ("question_type", "wrong_text", "wrong_llm", "correct_text", "correct_llm"),
     [

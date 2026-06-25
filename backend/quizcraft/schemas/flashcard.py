@@ -52,6 +52,13 @@ class FlashcardReviewRequest(BaseModel):
         return value
 
 
+class FlashcardUpdate(BaseModel):
+    """Request payload for editing flashcard content."""
+
+    front: str | None = None
+    back: str | None = None
+
+
 class FlashcardReviewOut(FlashcardOut):
     """Review response including this review's scheduled interval."""
 

@@ -9,10 +9,10 @@
 
 - 当前队列：GitHub TDD issues #16-#38；旧功能桶 issues #5-#15 已 superseded。
 - 本轮推进：#22 `[TDD 2C] Flashcard management and review settings`
-  完成第一段 backend public API 增量：`PUT /api/settings/review` 可持久化 desired retention、
-  daily new limit、daily review limit，`GET /api/flashcards/due` 会按新卡/复习卡两类 limit 返回。
+  完成第二段 backend management 增量：`PUT /api/flashcards/{id}` 可编辑 flashcard front/back，
+  并通过 flashcard API focused 测试覆盖。
 - 当前可领取：#22 本地进度为 `IN PROGRESS`；本轮未修改 GitHub issue/label/PR。
-- 下一步：继续 #22 的下一个最小增量，优先补 flashcard front/back edit API 或 7-day forecast API。
+- 下一步：继续 #22 的下一个最小增量，优先补 desired retention 对调度的影响或 7-day forecast API。
 - 监控节奏：Codex heartbeat 每 20 分钟检查一次；同一 worktree 只允许一个 Ralph runner 写代码。
 
 ## 切片完成情况
@@ -27,7 +27,7 @@
 | #19 LLM settings UI/runtime smoke | COMPLETE | docs/progress/ISSUE_19.md | Settings UI + runtime smoke 验证完成 |
 | #20 Flashcards from concepts and wrong answers | COMPLETE | docs/progress/ISSUE_20.md | 错题 source-linked elevated flashcard + 概念闪卡幂等创建 + 列表 API + 结果页闪卡列表 + 短答/填空错题更正清理完成 |
 | #21 FSRS due-card review session | COMPLETE | docs/progress/ISSUE_21.md | 后端 due list + 全部 Again/Hard/Good/Easy review 覆盖 + ReviewLog 完成；前端翻卡评分 flow 完成 |
-| #22 Flashcard management and review settings | IN PROGRESS | docs/progress/ISSUE_22.md | Review settings API + daily due limits 完成；剩余编辑、retention 调度影响、7-day forecast 和 UI |
+| #22 Flashcard management and review settings | IN PROGRESS | docs/progress/ISSUE_22.md | Review settings API + daily due limits + front/back edit API 完成；剩余 retention 调度影响、7-day forecast 和 UI |
 | #23-#38 | 未开始/阻塞 | docs/progress/ISSUE_<n>.md | 依赖前序 TDD issue |
 
 ## 已完成总览
@@ -165,7 +165,10 @@
 - 默认值对齐 PRD：desired retention 0.9、daily new limit 20、daily review limit 200。
 - 验证：红测先失败在 `PUT /api/settings/review` 404；实现后 flashcards API 9 绿、相关 settings/flashcards
   25 绿、后端全量 209 绿；`git diff --check` 通过。
-- 剩余：front/back 编辑 API、desired retention 对调度的实际影响、7-day forecast API、管理 UI。
+- 新增 flashcard front/back 编辑 public API：`PUT /api/flashcards/{id}` 可部分更新 front/back，
+  空更新返回 400，不存在返回 404，响应返回持久化后的 FlashcardOut。
+- 验证：`backend/tests/test_flashcards_api.py` 10 绿；`git diff --check` 通过。
+- 剩余：desired retention 对调度的实际影响、7-day forecast API、管理 UI。
 
 ## Blockers（跨切片，待 yufeng 外部资源）
 
